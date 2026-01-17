@@ -3,6 +3,7 @@
 import React, { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import html2canvas from "html2canvas"; // 画像生成用
 import {
   Save,
   Trash2,
@@ -33,7 +34,8 @@ import {
   GripVertical,
   Star,
   Calendar,
-  StopCircle
+  StopCircle,
+  Download
 } from "lucide-react";
 
 // --- dnd-kit imports ---
@@ -74,7 +76,7 @@ function InputField({ label, children }: { label: string; children: React.ReactN
 }
 
 // --- Sortable Item Wrapper (Handle Only Logic) ---
-// 修正: childrenの型定義と、cloneElement時の型キャストを追加してビルドエラーを回避
+// Note: 親要素(div)からはドラッグ属性を排除し、子供(BlockCard)のハンドル部分だけに渡す設計
 function SortableItem({ id, children }: { id: string; children: React.ReactElement }) {
   const {
     attributes,
@@ -91,12 +93,12 @@ function SortableItem({ id, children }: { id: string; children: React.ReactEleme
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 999 : 'auto',
     position: 'relative' as const,
-    touchAction: 'none'
+    // touchActionはハンドル側で制御するため、ここでは指定しないか、必要に応じて設定
   };
 
   return (
     <div ref={setNodeRef} style={style}>
-       {/* TypeScriptエラー回避のため as any を使用 */}
+       {/* 子供に dragHandleProps を渡す */}
        {React.cloneElement(children as React.ReactElement<any>, { dragHandleProps: { ...listeners, ...attributes } })}
     </div>
   );
@@ -111,13 +113,16 @@ export default function EventEdit({ params }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("edit");
   const [msg, setMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
   
+  // Share Modal
+  const [showShareModal, setShowShareModal] = useState(false);
+  const shareCardRef = useRef<HTMLDivElement>(null); // 画像化する要素への参照
+
   // UI State
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // DnD Sensors
+  // DnD Sensors (Handle Onlyにするため、constraintは緩めでOKだが、誤操作防止で少し入れる)
   const sensors = useSensors(
     useSensor(PointerSensor, { 
       activationConstraint: { distance: 5 } 
@@ -134,6 +139,9 @@ export default function EventEdit({ params }: Props) {
   const [encoreRevealed, setEncoreRevealed] = useState(false);
   const [playingItemId, setPlayingItemId] = useState<string | null>(null); // "blockId-index"
   const [now, setNow] = useState(Date.now());
+  
+  // Break Control Panel Input
+  const [customBreakTime, setCustomBreakTime] = useState("15");
 
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -275,7 +283,7 @@ export default function EventEdit({ params }: Props) {
        }
     }
 
-    if (!targetBlockId) return showMsg("休憩項目が見つかりません", true);
+    if (!targetBlockId) return showMsg("リストに休憩項目がありません", true);
 
     const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
     const target = blocks[targetIndex];
@@ -356,6 +364,25 @@ export default function EventEdit({ params }: Props) {
     }
   }
 
+  // Download Image
+  async function handleDownloadImage() {
+    if (!shareCardRef.current) return;
+    try {
+      const canvas = await html2canvas(shareCardRef.current, {
+        backgroundColor: null,
+        scale: 2 // 高画質化
+      });
+      const link = document.createElement("a");
+      link.download = `pamp_${event.slug}_invite.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      showMsg("画像を保存しました✨");
+    } catch (e) {
+      console.error(e);
+      showMsg("保存に失敗しました", true);
+    }
+  }
+
   // Live Mode Helpers
   const getActiveItemInfo = () => {
       if (!playingItemId) return null;
@@ -398,25 +425,36 @@ export default function EventEdit({ params }: Props) {
       {showShareModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowShareModal(false)}>
            <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              <div className="bg-slate-50 p-6 flex flex-col items-center text-center relative overflow-hidden">
+              
+              {/* Card View (Captured by html2canvas) */}
+              <div ref={shareCardRef} className="bg-slate-50 p-8 flex flex-col items-center text-center relative overflow-hidden">
+                 {/* Decorative BG */}
                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-                 <h3 className="font-bold text-lg text-slate-800 mb-1 mt-2">{event.title}</h3>
-                 <p className="text-xs text-slate-400 mb-6 uppercase tracking-widest font-bold">Official Program</p>
-                 <div className="bg-white p-4 rounded-3xl shadow-lg border border-slate-100 mb-6">
+                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-purple-200/50 rounded-full blur-2xl"></div>
+                 <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-indigo-200/50 rounded-full blur-2xl"></div>
+
+                 <h3 className="font-bold text-xl text-slate-800 mb-1 mt-2 relative z-10 leading-tight">{event.title}</h3>
+                 <p className="text-[10px] text-slate-400 mb-8 uppercase tracking-[0.2em] font-bold relative z-10">Official Program</p>
+                 
+                 <div className="bg-white p-5 rounded-3xl shadow-xl border border-slate-100 mb-8 relative z-10">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}`} alt="QR" className="w-48 h-48 mix-blend-multiply" />
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(viewerUrl)}`} alt="QR" className="w-48 h-48 mix-blend-multiply" />
                  </div>
-                 <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-200/50 px-4 py-2 rounded-full mb-4">
+                 
+                 <div className="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white/60 backdrop-blur-sm border border-slate-200 px-5 py-2.5 rounded-full mb-2 relative z-10">
                     <Calendar size={14}/>
                     <span>{new Date().toLocaleDateString()}</span>
                  </div>
-                 <div className="text-[10px] text-slate-400 font-mono break-all">{viewerUrl}</div>
               </div>
-              <div className="p-4 bg-white border-t border-slate-100 grid gap-3">
-                 <button className="w-full py-3.5 bg-slate-900 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2" onClick={() => setShowShareModal(false)}>
+
+              {/* Actions */}
+              <div className="p-5 bg-white border-t border-slate-100 grid gap-3">
+                 <button onClick={handleDownloadImage} className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-indigo-200">
+                    <Download size={18}/> 画像を保存
+                 </button>
+                 <button className="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-95 transition-transform" onClick={() => setShowShareModal(false)}>
                     閉じる
                  </button>
-                 <p className="text-[10px] text-center text-slate-400">※スクリーンショットを撮って共有してください</p>
               </div>
            </div>
         </div>
@@ -429,41 +467,42 @@ export default function EventEdit({ params }: Props) {
         {activeTab === "edit" && (
           <div className="animate-in fade-in p-4 space-y-8 h-full overflow-y-auto pb-32">
             
-            {/* HERO */}
-            <div className="pt-2 pb-4">
-               <h2 className="text-2xl font-extrabold text-slate-900 leading-tight">{event.title}</h2>
-               <div className="flex items-center gap-2 mt-2">
-                 <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-indigo-100">Editing</span>
-               </div>
+            {/* HERO (Centered Japanese Design) */}
+            <div className="pt-6 pb-2 text-center">
+               <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Editing Mode</p>
+               <h2 className="text-xl font-bold text-slate-800">PAMP 編集画面</h2>
             </div>
 
-            {/* COVER */}
-            <section className="bg-white rounded-[2rem] overflow-hidden shadow-sm border border-slate-100">
-                <div className="relative aspect-[16/9] bg-slate-50 group">
-                  {displayCover ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={displayCover} className="w-full h-full object-cover" alt="" />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                      <ImageIcon size={32} className="mb-1"/>
-                      <span className="text-xs font-bold">表紙画像なし</span>
-                    </div>
-                  )}
-                  <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
-                    <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
-                      {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
-                    </div>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                  </label>
-                </div>
-                {isCoverDirty && (
-                  <div className="p-3 bg-orange-50 flex justify-end">
-                    <button onClick={saveCoverImage} disabled={loading} className="bg-slate-900 text-white px-5 py-2 rounded-full text-xs font-bold shadow active:scale-95">保存する</button>
+            {/* COVER (Label Outside) */}
+            <div className="space-y-2">
+               <div className="text-[10px] font-bold text-slate-400 tracking-wider uppercase ml-1">Cover Image</div>
+               <section className="bg-white rounded-[2rem] overflow-hidden shadow-sm border border-slate-100">
+                  <div className="relative aspect-[16/9] bg-slate-50 group">
+                     {displayCover ? (
+                     // eslint-disable-next-line @next/next/no-img-element
+                     <img src={displayCover} className="w-full h-full object-cover" alt="" />
+                     ) : (
+                     <div className="flex flex-col items-center justify-center h-full text-slate-300">
+                        <ImageIcon size={32} className="mb-1"/>
+                        <span className="text-xs font-bold">画像なし</span>
+                     </div>
+                     )}
+                     <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
+                     <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
+                        {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
+                     </div>
+                     <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+                     </label>
                   </div>
-                )}
-            </section>
+                  {isCoverDirty && (
+                     <div className="p-3 bg-orange-50 flex justify-end">
+                     <button onClick={saveCoverImage} disabled={loading} className="bg-slate-900 text-white px-5 py-2 rounded-full text-xs font-bold shadow active:scale-95">保存する</button>
+                     </div>
+                  )}
+               </section>
+            </div>
 
-            {/* BLOCKS LIST (DnD) */}
+            {/* BLOCKS LIST (DnD Handle Only) */}
             <div className="space-y-4">
                <DndContext 
                   sensors={sensors}
@@ -507,7 +546,7 @@ export default function EventEdit({ params }: Props) {
           <div className="animate-in fade-in flex flex-col h-full bg-slate-100 relative">
             
             {/* 1. ENCORE HEADER (Top) */}
-            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm shrink-0">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm shrink-0 z-30">
                <div>
                   <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Encore Control</h2>
                   <div className="flex items-center gap-2">
@@ -524,7 +563,7 @@ export default function EventEdit({ params }: Props) {
             </div>
 
             {/* 2. TIMELINE LIST (Middle - Scrollable) */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-32">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-40">
                  {blocks.filter(b => b.type === "program").map(block => (
                     <div key={block.id} className="space-y-2">
                        {block.content.items?.map((item: any, i: number) => {
@@ -543,20 +582,27 @@ export default function EventEdit({ params }: Props) {
                                }`}
                              >
                                 <div className="flex items-center gap-4">
-                                   <button 
-                                     onClick={() => toggleActiveItem(block.id, i)} 
-                                     className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-slate-100 text-slate-400'}`}
-                                   >
-                                      {isActive ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}
-                                   </button>
+                                   {/* Play Button (Hidden for Break) */}
+                                   {isBreak ? (
+                                      <div className="shrink-0 w-12 h-12 rounded-full flex items-center justify-center bg-orange-50 text-orange-400">
+                                         <Coffee size={20}/>
+                                      </div>
+                                   ) : (
+                                      <button 
+                                        onClick={() => toggleActiveItem(block.id, i)} 
+                                        className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-slate-100 text-slate-400'}`}
+                                      >
+                                         {isActive ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}
+                                      </button>
+                                   )}
                                    
                                    <div className="flex-1 min-w-0">
                                       <div className={`font-bold text-sm truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>{item.title}</div>
-                                      <div className="text-xs text-slate-400 mt-0.5">{isBreak ? `休憩 (${item.duration})` : item.composer}</div>
+                                      <div className="text-xs text-slate-400 mt-0.5">{isBreak ? `休憩目安: ${item.duration}` : item.composer}</div>
                                    </div>
                                    
                                    {isActive && (
-                                     <div className="shrink-0 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded">演奏中</div>
+                                     <div className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded ${isBreak ? 'bg-orange-100 text-orange-600':'bg-indigo-50 text-indigo-500'}`}>{isBreak ? '休憩中' : '演奏中'}</div>
                                    )}
                                    {item.isEncore && <span className="shrink-0 px-2 py-1 bg-pink-100 text-pink-600 text-[10px] font-bold rounded">Enc</span>}
                                 </div>
@@ -569,13 +615,13 @@ export default function EventEdit({ params }: Props) {
             </div>
 
             {/* 3. BREAK CONTROL PANEL (Bottom Fixed) */}
-            <div className="absolute bottom-0 inset-x-0 bg-white border-t border-slate-200 p-4 shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.1)] z-20">
+            <div className="absolute bottom-0 inset-x-0 bg-white border-t border-slate-200 p-4 shadow-[0_-5px_30px_-5px_rgba(0,0,0,0.15)] z-20 rounded-t-[2rem]">
                {activeInfo?.item.type === "break" ? (
                   // ON BREAK UI
                   <div className="flex items-center gap-4 animate-in slide-in-from-bottom-2">
                      <div className="flex-1">
                         <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Coffee size={10}/> 休憩中</div>
-                        <div className="text-3xl font-black text-slate-800 tabular-nums font-mono leading-none">
+                        <div className="text-4xl font-black text-slate-800 tabular-nums font-mono leading-none tracking-tight">
                            {(() => {
                               if (!activeInfo.item.timerEnd) return "--:--";
                               const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
@@ -586,18 +632,42 @@ export default function EventEdit({ params }: Props) {
                            })()}
                         </div>
                      </div>
-                     <button onClick={stopBreak} className="h-12 px-6 bg-slate-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-transform flex items-center gap-2">
-                        <StopCircle size={18} /> 終了
+                     <button onClick={stopBreak} className="h-14 px-8 bg-slate-900 text-white rounded-2xl font-bold text-sm shadow-xl active:scale-95 transition-transform flex items-center gap-2 hover:bg-slate-800">
+                        <StopCircle size={20} /> 休憩終了
                      </button>
                   </div>
                ) : (
-                  // BREAK START UI
-                  <div className="flex items-center gap-3">
-                     <div className="text-[10px] font-bold text-slate-400 w-12 text-center uppercase leading-tight">Break<br/>Control</div>
-                     <div className="flex-1 flex gap-2 overflow-x-auto">
-                        <button onClick={() => startBreak(10)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">10分</button>
-                        <button onClick={() => startBreak(15)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">15分</button>
-                        <button onClick={() => startBreak(20)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">20分</button>
+                  // BREAK START UI (Card Style)
+                  <div className="flex flex-col gap-3">
+                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">休憩のコントロール</div>
+                     <div className="flex gap-2">
+                        {[10, 15, 20].map(min => (
+                           <button 
+                             key={min}
+                             onClick={() => startBreak(min)}
+                             className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 active:scale-95 transition-all"
+                           >
+                             {min}分
+                           </button>
+                        ))}
+                     </div>
+                     <div className="flex gap-2">
+                         <div className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-3 flex items-center">
+                            <input 
+                              type="number" 
+                              className="w-full bg-transparent text-sm font-bold outline-none text-slate-700 placeholder:text-slate-300"
+                              placeholder="自由入力"
+                              value={customBreakTime}
+                              onChange={(e) => setCustomBreakTime(e.target.value)}
+                            />
+                            <span className="text-xs font-bold text-slate-400">分</span>
+                         </div>
+                         <button 
+                           onClick={() => startBreak(parseInt(customBreakTime) || 15)}
+                           className="px-6 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 active:scale-95 transition-all shadow-md"
+                         >
+                           開始
+                         </button>
                      </div>
                   </div>
                )}
