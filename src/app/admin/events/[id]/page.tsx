@@ -118,7 +118,8 @@ export default function EventEdit({ params }: Props) {
   const [encoreRevealed, setEncoreRevealed] = useState(false);
   const [playingItemId, setPlayingItemId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  
+  const [customBreakTime, setCustomBreakTime] = useState("15");
+
   // DnD Sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -231,7 +232,6 @@ export default function EventEdit({ params }: Props) {
     const next = !encoreRevealed;
     setEncoreRevealed(next);
     await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
-    // showMsg(next ? "アンコール公開🎉" : "アンコール非公開🔒"); // Liveモードでは邪魔なのでToast出さない
   }
 
   async function toggleActiveItem(blockId: string, itemIndex: number) {
@@ -285,7 +285,6 @@ export default function EventEdit({ params }: Props) {
     const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
     
-    // Reset others
     newItems.forEach(it => it.active = false);
     
     newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
@@ -296,6 +295,7 @@ export default function EventEdit({ params }: Props) {
     setBlocks(newBlocks);
 
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
+    showMsg(`${minutes}分の休憩を開始しました⏳`);
   }
 
   async function stopBreak() {
@@ -313,6 +313,7 @@ export default function EventEdit({ params }: Props) {
     setBlocks(newBlocks);
 
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
+    showMsg("休憩を終了しました");
   }
 
   // --- Add/Edit/Delete ---
@@ -392,14 +393,12 @@ export default function EventEdit({ params }: Props) {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900" ref={pageRef}>
       
-      {/* HEADER & TABS */}
+      {/* HEADER */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 safe-top shadow-sm">
         <div className="flex justify-between items-center px-4 py-3 h-14">
            <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
            <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-full active:scale-95 transition-transform"><Eye size={18} /></Link>
         </div>
-        
-        {/* SEGMENT CONTROL (Top Tabs) */}
         <div className="px-4 pb-3">
            <div className="flex bg-slate-100 p-1 rounded-xl">
               <button onClick={() => setActiveTab("edit")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "edit" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400"}`}>
@@ -439,22 +438,19 @@ export default function EventEdit({ params }: Props) {
         </div>
       )}
 
-      {/* MAIN CONTAINER */}
+      {/* MAIN CONTENT */}
       <main className={`h-[calc(100dvh-7.5rem)] overflow-hidden ${activeTab==='live' ? 'bg-slate-950 text-slate-200' : 'bg-slate-50'}`}>
         
         {/* === EDIT TAB === */}
         {activeTab === "edit" && (
           <div className="h-full overflow-y-auto pb-32 p-4 space-y-6">
             
-            {/* DISTRIBUTE BUTTON */}
-            <button 
-              onClick={() => setShowShareModal(true)}
-              className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform"
-            >
+            {/* DISTRIBUTE */}
+            <button onClick={() => setShowShareModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform">
                <Share2 size={20}/> パンフレットを配布する
             </button>
 
-            {/* SETTINGS CARD 1 */}
+            {/* SETTINGS CARD 1: COVER */}
             <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
                <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
                   <Settings size={18} className="text-slate-400"/>
@@ -482,7 +478,7 @@ export default function EventEdit({ params }: Props) {
                )}
             </section>
 
-            {/* SETTINGS CARD 2 */}
+            {/* SETTINGS CARD 2: ACTIONS */}
             <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
                <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
                   <LinkIcon size={18} className="text-slate-400"/>
@@ -511,7 +507,7 @@ export default function EventEdit({ params }: Props) {
                )}
             </section>
 
-            {/* BLOCKS (DnD) */}
+            {/* BLOCKS */}
             <div className="space-y-4">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
@@ -553,7 +549,7 @@ export default function EventEdit({ params }: Props) {
                </button>
             </div>
 
-            {/* 2. Timeline (Dark Mode) */}
+            {/* 2. Timeline */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
                {blocks.filter(b => b.type === "program").map(block => (
                   <div key={block.id}>
@@ -589,10 +585,9 @@ export default function EventEdit({ params }: Props) {
                <div className="h-40"/>
             </div>
 
-            {/* 3. Break Controller (Bottom Fixed) */}
+            {/* 3. Break Controller */}
             <div className="shrink-0 bg-slate-900 border-t border-slate-800 p-5 pb-8 relative z-20">
                {activeInfo?.item.type === "break" ? (
-                  // ACTIVE BREAK
                   <div className="flex items-center gap-6">
                      <div className="flex-1">
                         <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Coffee size={12}/> Intermission</div>
@@ -613,7 +608,6 @@ export default function EventEdit({ params }: Props) {
                      </button>
                   </div>
                ) : (
-                  // IDLE
                   <div className="flex items-center gap-4 justify-between">
                      {[10, 15, 20].map(min => (
                         <button key={min} onClick={() => startBreak(min)} className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700 hover:border-slate-500 hover:text-white transition-all active:scale-90">
@@ -621,9 +615,12 @@ export default function EventEdit({ params }: Props) {
                         </button>
                      ))}
                      <div className="h-10 w-px bg-slate-800"></div>
-                     <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="w-16 h-16 rounded-full bg-indigo-600 text-white font-bold text-xs flex flex-col items-center justify-center shadow-lg active:scale-90">
-                        <Play size={16} fill="currentColor" className="mb-1"/> Start
-                     </button>
+                     <div className="flex flex-col items-center gap-2">
+                        <NoZoomInput type="number" className="!w-16 !bg-slate-800 !border !border-slate-700 !rounded-lg !text-center !text-white !font-bold !text-sm !py-1 !px-0" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
+                        <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-full shadow-lg active:scale-95 flex items-center gap-1 hover:bg-indigo-500">
+                           <Play size={10} fill="currentColor"/> Start
+                        </button>
+                     </div>
                   </div>
                )}
             </div>
@@ -631,7 +628,7 @@ export default function EventEdit({ params }: Props) {
         )}
       </main>
 
-      {/* FAB (Add Button) */}
+      {/* FAB */}
       {activeTab === "edit" && (
         <>
           <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
@@ -656,213 +653,7 @@ export default function EventEdit({ params }: Props) {
   );
 }
 
-// --- Helper Components ---
-
-function NavBtn({ active, onClick, icon: Icon, label }: any) {
-  return (
-    <button onClick={onClick} className={`flex flex-col items-center justify-center w-full h-full transition-all duration-300 ${active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-500'}`}>
-      <Icon size={22} strokeWidth={active?2.5:2} className={`mb-1 transition-transform ${active?'scale-110':''}`} />
-      <span className="text-[10px] font-bold">{label}</span>
-    </button>
-  );
-}
-
-function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
-  return (
-    <button onClick={onClick} className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl active:scale-95 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100 ${color}`}>
-      <Icon size={24} />
-      <span className="text-[10px] font-bold text-slate-600">{label}</span>
-    </button>
-  );
-}
-
-function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, onMove, supabaseClient }: any) {
-  const [content, setContent] = useState(block.content ?? {});
-  const [isDirty, setIsDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  
-  useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
-  const handleChange = (nc: any) => { setContent(nc); setIsDirty(true); };
-
-  const handleSave = async (e?: any) => {
-    e?.stopPropagation();
-    setSaving(true);
-    try { await onSave(block.id, content); setIsDirty(false); } catch { alert("エラー"); } finally { setSaving(false); }
-  };
-
-  const handleUpload = async (e: any, target: 'single' | 'gallery' | 'profile', index?: number) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const ext = file.name.split(".").pop();
-      const path = `uploads/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-      const { error } = await supabaseClient.storage.from("pamp-images").upload(path, file);
-      if (error) throw error;
-      const { data } = supabaseClient.storage.from("pamp-images").getPublicUrl(path);
-      if (target === 'single') handleChange({ ...content, image: data.publicUrl });
-      if (target === 'profile' && typeof index === 'number') {
-        const np = [...content.people]; np[index].image = data.publicUrl; handleChange({ ...content, people: np });
-      }
-      if (target === 'gallery') {
-         const current = content.images ?? (content.url ? [content.url] : []);
-         handleChange({ ...content, images: [...current, data.publicUrl] });
-      }
-    } catch { alert("アップロード失敗"); }
-  };
-
-  const labels: any = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", gallery: "ギャラリー", free: "フリーテキスト" };
-  const badgeColors: any = { greeting: "text-orange-500 bg-orange-50", program: "text-blue-500 bg-blue-50", profile: "text-green-500 bg-green-50", gallery: "text-pink-500 bg-pink-50", free: "text-indigo-500 bg-indigo-50" };
-  const TypeIcon = { greeting: MessageSquare, program: Music, profile: User, gallery: Grid, free: Type }[block.type as string] || Edit3;
-
-  return (
-    <div className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
-      <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
-        <div className="flex items-center gap-4">
-           {/* dnd Handle Wrapper (Parent handles dragging) */}
-           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${badgeColors[block.type] || 'bg-slate-100'}`}>
-             <TypeIcon size={20} />
-           </div>
-           <div>
-             <div className="text-sm font-bold text-slate-800">{labels[block.type]}</div>
-             {!isExpanded && <div className="text-[10px] text-slate-400 truncate max-w-[150px] mt-0.5 font-medium">
-                {block.type === 'free' ? content.title : block.type === 'greeting' ? content.author : 'タップして編集'}
-             </div>}
-           </div>
-        </div>
-        <div className="flex items-center gap-4">
-           {!isExpanded && (
-             <div className="flex flex-col gap-1 -mr-1" onClick={e=>e.stopPropagation()}>
-               <button onClick={() => onMove(block.id, 'up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-1"><ArrowUp size={16}/></button>
-               <button onClick={() => onMove(block.id, 'down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-1"><ArrowDown size={16}/></button>
-             </div>
-           )}
-           <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : 'text-slate-300'}`}><ChevronDown size={20} /></div>
-        </div>
-      </div>
-
-      {isExpanded && (
-        <div className="p-5 pt-0 animate-in slide-in-from-top-2 cursor-auto" onClick={e => e.stopPropagation()}>
-           <div className="py-6 space-y-6 border-t border-slate-50">
-              {block.type === "greeting" && (
-                <>
-                  <div className="flex gap-4">
-                    <div className="relative w-24 h-24 bg-slate-100 rounded-2xl overflow-hidden shrink-0 border border-slate-200 group">
-                      {content.image ? <img src={content.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-8 text-slate-300"/>}
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors z-10"><Camera size={20} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} /></label>
-                    </div>
-                    <div className="flex-1 space-y-3">
-                      <InputField label="お名前"><NoZoomInput placeholder="氏名" value={content.author||""} onChange={e => handleChange({...content, author: e.target.value})} /></InputField>
-                      <InputField label="肩書き"><NoZoomInput placeholder="例: 主催者" value={content.role||""} onChange={e => handleChange({...content, role: e.target.value})} /></InputField>
-                    </div>
-                  </div>
-                  <InputField label="挨拶文"><NoZoomTextArea className="h-40" placeholder="本文..." value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
-                </>
-              )}
-              {block.type === "free" && (
-                  <>
-                    <InputField label="タイトル"><NoZoomInput placeholder="タイトル" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
-                    <InputField label="本文"><NoZoomTextArea className="h-40" placeholder="本文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
-                  </>
-              )}
-              {block.type === "gallery" && (
-                  <>
-                    <InputField label="タイトル"><NoZoomInput placeholder="Memories" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
-                    <div className="grid grid-cols-3 gap-3">
-                      {(content.images || (content.url ? [content.url] : [])).map((url:string, i:number) => (
-                          <div key={i} className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden shadow-sm">
-                            <img src={url} className="w-full h-full object-cover" alt="" />
-                            <button onClick={() => handleChange({...content, images: (content.images||[content.url]).filter((_:any,idx:number)=>idx!==i)})} className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1.5"><X size={12}/></button>
-                          </div>
-                       ))}
-                       <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 cursor-pointer"><Plus /><input type="file" className="hidden" accept="image/*" onChange={e => handleUpload(e, 'gallery')} /></label>
-                    </div>
-                    <InputField label="キャプション"><NoZoomInput placeholder="説明..." value={content.caption||""} onChange={e => handleChange({...content, caption: e.target.value})} /></InputField>
-                  </>
-              )}
-              
-              {/* PROFILE (Structured) */}
-              {block.type === "profile" && (
-                <div className="space-y-4">
-                  {(content.people || []).map((p: any, i: number) => (
-                    <ProfileEditor key={i} p={p} 
-                      onChange={(newP:any) => {const np=[...content.people]; np[i]=newP; handleChange({...content, people:np})}}
-                      onDelete={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})}
-                      onUpload={(e:any) => handleUpload(e, 'profile', i)}
-                    />
-                  ))}
-                  <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:"", sns:{}}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm">+ 出演者を追加</button>
-                </div>
-              )}
-
-              {/* PROGRAM (Accordion) */}
-              {block.type === "program" && (
-                  <div className="space-y-4">
-                    {(content.items || []).map((item: any, i: number) => (
-                        <div key={i} className="group relative">
-                            {/* Section */}
-                            {item.type === "section" && (
-                              <div className="flex gap-2 items-center mt-6 mb-2">
-                                <div className="flex flex-col gap-1 mr-1">
-                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowUp size={14}/></button>
-                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowDown size={14}/></button>
-                                </div>
-                                <div className="flex-1 border-b border-indigo-200"><NoZoomInput className="!bg-transparent !py-2 text-indigo-700 font-bold text-sm !border-none !ring-0 !px-0" placeholder="セクション見出し" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
-                                <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
-                              </div>
-                            )}
-                            
-                            {/* Memo */}
-                            {item.type === "memo" && (
-                              <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2 items-center">
-                                 <div className="flex flex-col gap-1 mr-1">
-                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowUp size={12}/></button>
-                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowDown size={12}/></button>
-                                 </div>
-                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0 !placeholder-yellow-400/50" rows={1} placeholder="メモを入力..." value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
-                                 <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
-                              </div>
-                            )}
-
-                            {/* Song / Break Item */}
-                            {(item.type === "song" || item.type === "break") && (
-                                <ProgramItemEditor 
-                                  item={item} 
-                                  index={i} 
-                                  total={content.items.length}
-                                  onChange={(newItem:any) => {const ni=[...content.items]; ni[i]=newItem; handleChange({...content, items:ni})}}
-                                  onDelete={() => {const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni})}}
-                                  onMove={(dir: 'up'|'down') => {
-                                     const ni=[...content.items];
-                                     const to = dir==='up' ? i-1 : i+1;
-                                     if(to>=0 && to<ni.length) { [ni[i],ni[to]]=[ni[to],ni[i]]; handleChange({...content, items:ni}); }
-                                  }}
-                                />
-                            )}
-                        </div>
-                    ))}
-                    
-                    {/* Add Buttons */}
-                    <div className="grid grid-cols-2 gap-3 pt-2">
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"song",title:"",composer:"",performer:"",description:"",isEncore:false}]})} className="py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-indigo-100">+ 曲</button>
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"break",title:"休憩",duration:"15分"}]})} className="py-3 bg-slate-100 text-slate-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-slate-200">+ 休憩</button>
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"section",title:"新しいセクション"}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ 見出し</button>
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"memo",title:""}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ メモ</button>
-                    </div>
-                  </div>
-              )}
-           </div>
-           
-           <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-             <button onClick={() => onDelete(block.id)} className="text-red-400 hover:text-red-600 p-2 text-xs font-bold flex items-center gap-1"><Trash2 size={16}/> 削除</button>
-             {isDirty && (<button onClick={handleSave} disabled={saving} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all hover:bg-slate-800">{saving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} 保存</button>)}
-           </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Helper Editors (Accordion Style) ---
+// --- Helper Editors ---
 
 function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
   const [open, setOpen] = useState(false);
