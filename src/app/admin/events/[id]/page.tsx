@@ -1,4 +1,6 @@
+
 "use client";
+// Admin page: manual theme presets (no AI). Select palette/background/font/layout and save to events.theme.
 
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -9,7 +11,6 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
-  Sparkles,
   Palette,
   User,
   Music,
@@ -18,7 +19,6 @@ import {
   Loader2,
   Layout as LayoutIcon,
   Image as ImageIcon,
-  Wand2,
   Eye,
   Camera,
   Upload,
@@ -51,22 +51,85 @@ function safeParseTheme(raw: any) {
   return null;
 }
 
-function ensureVariants(t: any) {
-  const v = (t && typeof t === "object" ? t.variants : null) ?? {};
+
+function paletteFromPreset(p: "classic" | "night" | "modern") {
+  if (p === "night") {
+    return {
+      bg: "#0E1117",
+      card: "#1A1E24",
+      text: "#E2E8F0",
+      muted: "#A3A9B3",
+      accent: "#B8860B",
+      border: "#333946",
+    };
+  }
+  if (p === "modern") {
+    return {
+      bg: "#0B1220",
+      card: "#0F1A30",
+      text: "#E6EEF9",
+      muted: "#A7B4C6",
+      accent: "#5EEAD4",
+      border: "#22314A",
+    };
+  }
+  // classic
   return {
-    hero: v.hero ?? "poster",
-    card: v.card ?? "glass",
-    program: v.program ?? "timeline",
+    bg: "#F8F0E3",
+    card: "#FFFFFF",
+    text: "#1F2937",
+    muted: "#6B7280",
+    accent: "#0F766E",
+    border: "#E7DED1",
   };
 }
 
-// 超雑なタグ化（文章→単語）
-function toTags(description: string) {
-  return description
-    .split(/[\s,、。．・]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 8);
+function bgPatternFromPreset(p: "none" | "paper" | "grain") {
+  if (p === "none") return "";
+  // Lightweight CSS-only patterns (no external assets)
+  if (p === "paper") {
+    return `
+      background-image:
+        radial-gradient(circle at 20% 10%, rgba(0,0,0,0.03) 0 2px, transparent 3px),
+        radial-gradient(circle at 80% 30%, rgba(0,0,0,0.025) 0 2px, transparent 3px),
+        radial-gradient(circle at 35% 80%, rgba(0,0,0,0.02) 0 2px, transparent 3px);
+      background-size: 220px 220px;
+      background-attachment: fixed;
+    `;
+  }
+  // grain
+  return `
+    background-image:
+      radial-gradient(circle at 10% 20%, rgba(0,0,0,0.035) 0 1px, transparent 2px),
+      radial-gradient(circle at 70% 60%, rgba(0,0,0,0.03) 0 1px, transparent 2px),
+      radial-gradient(circle at 40% 90%, rgba(0,0,0,0.025) 0 1px, transparent 2px);
+    background-size: 120px 120px;
+    background-attachment: fixed;
+  `;
+}
+
+function typographyFromPreset(p: "sans" | "serif" | "rounded") {
+  if (p === "serif") return { body: "serif", heading: "serif" };
+  if (p === "rounded") return { body: "rounded", heading: "rounded" };
+  return { body: "sans", heading: "sans" };
+}
+
+function buildTheme({ palettePreset, bgPreset, fontPreset, heroVariant, cardVariant, programVariant }: {
+  palettePreset: "classic" | "night" | "modern";
+  bgPreset: "none" | "paper" | "grain";
+  fontPreset: "sans" | "serif" | "rounded";
+  heroVariant: "poster" | "simple";
+  cardVariant: "glass" | "plain";
+  programVariant: "timeline" | "list";
+}) {
+  return {
+    palette: paletteFromPreset(palettePreset),
+    typography: typographyFromPreset(fontPreset),
+    variants: { hero: heroVariant, card: cardVariant, program: programVariant },
+    // Viewer reads these (it already supports background_pattern + custom_css)
+    background_pattern: "",
+    custom_css: bgPatternFromPreset(bgPreset),
+  };
 }
 
 export default function EventEdit({ params }: Props) {
@@ -88,11 +151,15 @@ export default function EventEdit({ params }: Props) {
   // Live
   const [encoreRevealed, setEncoreRevealed] = useState(false);
 
-  // AI theme
-  const [aiDescription, setAiDescription] = useState("");
-  const [aiStyle, setAiStyle] = useState<"classic" | "modern" | "pop">("classic");
-  const [aiTheme, setAiTheme] = useState<any>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Theme (manual)
+  const [themeDraft, setThemeDraft] = useState<any>(null);
+  const [palettePreset, setPalettePreset] = useState<"classic" | "night" | "modern">("classic");
+  const [bgPreset, setBgPreset] = useState<"none" | "paper" | "grain">("paper");
+  const [fontPreset, setFontPreset] = useState<"sans" | "serif" | "rounded">("sans");
+  const [heroVariant, setHeroVariant] = useState<"poster" | "simple">("poster");
+  const [cardVariant, setCardVariant] = useState<"glass" | "plain">("glass");
+  const [programVariant, setProgramVariant] = useState<"timeline" | "list">("timeline");
 
   // Drag refs
   const dragItem = useRef<number | null>(null);
@@ -127,8 +194,26 @@ export default function EventEdit({ params }: Props) {
     setIsCoverDirty(false);
     setEncoreRevealed(e.encore_revealed ?? false);
 
-    const t = safeParseTheme(e.theme);
-    if (t) setAiTheme(t);
+    const t = safeParseTheme(e.theme) ?? null;
+    setThemeDraft(t);
+
+    // initialize selects from existing theme when possible
+    const v = t?.variants ?? {};
+    setHeroVariant((v.hero as any) ?? "poster");
+    setCardVariant((v.card as any) ?? "glass");
+    setProgramVariant((v.program as any) ?? "timeline");
+
+    const body = t?.typography?.body;
+    setFontPreset(body === "serif" ? "serif" : body === "rounded" ? "rounded" : "sans");
+
+    // best-effort palette preset detection
+    const bg = t?.palette?.bg;
+    if (bg === "#0E1117") setPalettePreset("night");
+    else if (bg === "#0B1220") setPalettePreset("modern");
+    else setPalettePreset("classic");
+
+    // bg preset is stored in custom_css; we can't reliably detect, default to paper
+    setBgPreset("paper");
 
     const { data: b, error: e2 } = await supabase
       .from("blocks")
@@ -184,53 +269,25 @@ export default function EventEdit({ params }: Props) {
     }
   }
 
-  async function generateTheme() {
-    if (!aiDescription.trim()) {
-      showMsg("イメージを入力してください", true);
-      return;
-    }
-    setIsGenerating(true);
-    setIsError(false);
-    setMsg(null);
 
-    try {
-      const tags = toTags(aiDescription);
-      const res = await fetch("/api/ai/theme", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tags, style: aiStyle }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error);
+  async function saveTheme() {
+    const themeToSave = buildTheme({
+      palettePreset,
+      bgPreset,
+      fontPreset,
+      heroVariant,
+      cardVariant,
+      programVariant,
+    });
 
-      setAiTheme(json.theme);
-      showMsg("AIがデザインを提案しました");
-    } catch (e: any) {
-      showMsg(`生成エラー: ${e.message}`, true);
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function applyTheme() {
-    if (!aiTheme) return;
     setLoading(true);
-
-    // Ensure Viewer side can react to "AIっぽい" layout changes via theme.variants
-    const themeToSave = {
-      ...aiTheme,
-      variants: ensureVariants(aiTheme),
-    };
-
-    // events.theme は jsonb 推奨。textでもobjectで渡せばSupabase側がjsonとして保存できる構成が多い
     const { error } = await supabase.from("events").update({ theme: themeToSave }).eq("id", id);
-
     if (error) {
       showMsg(error.message, true);
     } else {
       setEvent((prev: any) => ({ ...prev, theme: themeToSave }));
-      setAiTheme(themeToSave);
-      showMsg("デザインを適用しました（Viewerに反映されます）");
+      setThemeDraft(themeToSave);
+      showMsg("デザインを保存しました（Viewerに反映されます）");
     }
     setLoading(false);
   }
@@ -549,110 +606,137 @@ export default function EventEdit({ params }: Props) {
 
             <hr className="border-dashed border-zinc-200" />
 
-            {/* AI Theme */}
+            {/* Theme (manual) */}
             <section className="space-y-6">
               <div className="flex items-center gap-2 text-lg font-bold">
-                <Sparkles className="text-purple-500 fill-purple-500" size={20} />
-                <h2>AIで全体を自動でデザインする</h2>
+                <Palette className="text-purple-600" size={20} />
+                <h2>デザイン（選ぶだけ）</h2>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Controls */}
                 <div className="space-y-4">
-                  <p className="text-xs text-zinc-500">
-                    雰囲気を文章で入力 → 簡易タグ化して AI に渡します。<br />
-                    （あとでタグUIに置き換え可能）
-                  </p>
-
-                  <textarea
-                    className="w-full h-32 rounded-xl border border-zinc-300 p-4 text-sm focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none resize-none transition-all placeholder:text-zinc-300"
-                    placeholder="例：星空のような背景で、落ち着いたクラシック。金のアクセント。"
-                    value={aiDescription}
-                    onChange={(e) => setAiDescription(e.target.value)}
-                  />
-
-                  <div className="flex gap-2">
-                    <select
-                      value={aiStyle}
-                      onChange={(e) => setAiStyle(e.target.value as any)}
-                      className="h-12 rounded-xl border border-zinc-300 px-3 text-sm font-bold"
-                    >
-                      <option value="classic">classic</option>
-                      <option value="modern">modern</option>
-                      <option value="pop">pop</option>
-                    </select>
-
-                    <button
-                      className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 transition-all shadow-md shadow-purple-200 active:scale-95 disabled:opacity-50"
-                      onClick={generateTheme}
-                      disabled={isGenerating || !aiDescription.trim()}
-                    >
-                      {isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 />}
-                      AIにデザインしてもらう
-                    </button>
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-zinc-500">配色</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => setPalettePreset("classic")}
+                        className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "classic" ? "border-black" : "border-zinc-200"}`}
+                      >
+                        Classic
+                      </button>
+                      <button
+                        onClick={() => setPalettePreset("night")}
+                        className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "night" ? "border-black" : "border-zinc-200"}`}
+                      >
+                        Night
+                      </button>
+                      <button
+                        onClick={() => setPalettePreset("modern")}
+                        className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "modern" ? "border-black" : "border-zinc-200"}`}
+                      >
+                        Modern
+                      </button>
+                    </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-zinc-500">背景</div>
+                      <select
+                        value={bgPreset}
+                        onChange={(e) => setBgPreset(e.target.value as any)}
+                        className="h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold"
+                      >
+                        <option value="none">なし</option>
+                        <option value="paper">紙っぽい</option>
+                        <option value="grain">粒感</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-zinc-500">フォント</div>
+                      <select
+                        value={fontPreset}
+                        onChange={(e) => setFontPreset(e.target.value as any)}
+                        className="h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold"
+                      >
+                        <option value="sans">ゴシック</option>
+                        <option value="serif">明朝</option>
+                        <option value="rounded">丸ゴ</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-zinc-500">レイアウト</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <select
+                        value={heroVariant}
+                        onChange={(e) => setHeroVariant(e.target.value as any)}
+                        className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
+                      >
+                        <option value="poster">Hero: Poster</option>
+                        <option value="simple">Hero: Simple</option>
+                      </select>
+                      <select
+                        value={cardVariant}
+                        onChange={(e) => setCardVariant(e.target.value as any)}
+                        className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
+                      >
+                        <option value="glass">Card: Glass</option>
+                        <option value="plain">Card: Plain</option>
+                      </select>
+                      <select
+                        value={programVariant}
+                        onChange={(e) => setProgramVariant(e.target.value as any)}
+                        className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
+                      >
+                        <option value="timeline">Program: Timeline</option>
+                        <option value="list">Program: List</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={saveTheme}
+                    disabled={loading}
+                    className="w-full h-12 rounded-xl bg-black text-white font-bold shadow-lg disabled:opacity-60"
+                  >
+                    {loading ? "保存中..." : "このデザインを保存"}
+                  </button>
+
+                  <p className="text-xs text-zinc-400">
+                    ※ AIは使いません。配色/背景/フォント/レイアウトを選んで保存するだけです。
+                  </p>
                 </div>
 
                 {/* Preview */}
-                <div className="relative aspect-[3/4] bg-zinc-100 rounded-xl overflow-hidden border shadow-inner flex flex-col">
-                  {aiTheme ? (
-                    <div
-                      className="flex-1 flex flex-col"
-                      style={{
-                        backgroundColor: aiTheme.palette?.bg ?? "#f8fafc",
-                        color: aiTheme.palette?.text ?? "#0f172a",
-                        backgroundImage: aiTheme.background_pattern ? `url('${aiTheme.background_pattern}')` : undefined,
-                        backgroundSize: aiTheme.background_pattern ? "140px" : undefined,
-                        fontFamily:
-                          aiTheme.typography?.heading === "serif"
-                            ? '"Noto Serif JP", serif'
-                            : aiTheme.typography?.heading === "rounded"
-                            ? '"Zen Maru Gothic", system-ui'
-                            : "system-ui",
-                      }}
-                    >
-                      {aiTheme.custom_css ? <style>{aiTheme.custom_css}</style> : null}
+                <div className="relative aspect-[3/4] rounded-xl overflow-hidden border shadow-inner">
+                  {(() => {
+                    const t = buildTheme({ palettePreset, bgPreset, fontPreset, heroVariant, cardVariant, programVariant });
+                    return (
+                      <div
+                        className="w-full h-full p-5"
+                        style={{ backgroundColor: t.palette.bg, color: t.palette.text }}
+                      >
+                        {t.custom_css ? <style>{`.theme-preview{${t.custom_css}}`}</style> : null}
+                        <div className="theme-preview w-full h-full rounded-lg p-5" style={{ border: `1px solid ${t.palette.border}` }}>
+                          <div className="text-[10px] font-bold tracking-[0.25em] uppercase opacity-70">Preview</div>
+                          <div className="mt-2 text-xl font-extrabold leading-tight">{event.title}</div>
+                          <div className="mt-3 text-xs opacity-70">hero:{t.variants.hero} / card:{t.variants.card} / program:{t.variants.program}</div>
 
-                      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                        <div className="text-xs uppercase opacity-70 tracking-widest">Preview</div>
-                        <div className="text-xl font-bold my-4">{event.title}</div>
-                        <div className="mt-1 text-[10px] font-mono opacity-70">
-                          hero:{ensureVariants(aiTheme).hero} / card:{ensureVariants(aiTheme).card} / program:{ensureVariants(aiTheme).program}
-                        </div>
-
-                        <div
-                          className="p-4 w-full text-sm text-left border shadow-sm"
-                          style={{
-                            backgroundColor: aiTheme.palette?.card ?? "#fff",
-                            borderColor: aiTheme.palette?.border ?? "#e2e8f0",
-                            borderRadius: `${aiTheme.decoration?.radius ?? 16}px`,
-                          }}
-                        >
                           <div
-                            className="font-bold mb-1"
-                            style={{ color: aiTheme.palette?.accent ?? "#7c3aed" }}
+                            className="mt-5 rounded-xl p-4"
+                            style={{ backgroundColor: t.palette.card, border: `1px solid ${t.palette.border}` }}
                           >
-                            Content Area
+                            <div className="text-xs font-bold" style={{ color: t.palette.accent }}>Card</div>
+                            <div className="mt-1 text-sm opacity-85">挨拶・プロフィール・曲目がここに入ります</div>
                           </div>
-                          <div className="opacity-80">ここにコンテンツが表示されます。</div>
                         </div>
-
-                        <button
-                          onClick={applyTheme}
-                          disabled={loading}
-                          className="mt-8 px-6 py-2 bg-black text-white rounded-full text-xs font-bold shadow-lg hover:scale-105 transition-transform disabled:opacity-60"
-                        >
-                          このデザインを採用
-                        </button>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center text-zinc-400 text-xs font-bold text-center">
-                      <div>
-                        <Sparkles className="mx-auto mb-2 opacity-20" size={32} />
-                        ここにプレビューが表示されます
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
             </section>
