@@ -1,970 +1,638 @@
 "use client";
 
-import React, { use, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { use, useEffect, useMemo, useState, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
-// @ts-ignore
-import QRCode from "qrcode";
+import { notFound } from "next/navigation";
+import { 
+  motion, 
+  useScroll, 
+  useTransform, 
+  AnimatePresence,
+  useInView
+} from "framer-motion";
 import {
-  Save,
-  Trash2,
-  Plus,
-  User,
-  Music,
-  MessageSquare,
-  Loader2,
-  Image as ImageIcon,
-  Eye,
-  Camera,
-  Upload,
+  MapPin,
   Coffee,
-  Play,
-  Pause,
-  Edit3, // ← これを追加しました！
-  MonitorPlay,
-  Share2,
-  Grid,
-  X,
   ChevronDown,
-  ChevronUp,
-  Type,
-  List,
-  Star,
-  StopCircle,
-  Copy,
-  Mail,
-  ArrowUp,
-  ArrowDown,
-  ExternalLink,
+  Sparkles,
+  Music,
+  Loader2,
+  User,
   Twitter,
   Instagram,
   Globe,
-  Heart,
   MessageCircle,
-  Settings,
-  Link as LinkIcon,
-  Check,
-  Smartphone,
-  GripVertical
+  Heart,
+  ExternalLink
 } from "lucide-react";
+import { Cinzel, Zen_Old_Mincho, Cormorant_Garamond } from 'next/font/google';
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+// --- Fonts ---
+const cinzel = Cinzel({ subsets: ["latin"], weight: ["400", "700"] });
+const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "500", "600", "700"], style: ["normal", "italic"] });
+const mincho = Zen_Old_Mincho({ subsets: ["latin"], weight: ["400", "700", "900"] });
+
+// --- Utils ---
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-type Props = { params: Promise<{ id: string }> };
-type Tab = "edit" | "live";
-
-// --- Utility Components ---
-function InputField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="w-full">
-      <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">{label}</label>
-      {children}
-    </div>
-  );
+// --- Theme Config ---
+function getThemeColors(palette: any) {
+  const accent = palette?.accent ?? "#B48E55"; // Classic Gold
+  return {
+    "--bg": "#F9F8F2", // Cream Paper
+    "--text": "#2A2A2A", // Ink Black
+    "--accent": accent,
+    "--muted": "#888888",
+    "--line": "#E5E5E5",
+    
+    // Night Mode (Midnight Blue Velvet)
+    "--live-bg": "#0f172a", // Midnight Blue
+    "--live-text": "#e2e8f0", // Silver Grey
+    "--live-accent": "#fcd34d", // Champagne Gold
+    "--live-line": "#1e293b",
+    "--live-glow": "rgba(252, 211, 77, 0.15)",
+  } as React.CSSProperties;
 }
 
-// iPhone Zoom Prevention Input Wrapper
-function NoZoomInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`w-full bg-slate-50 px-3 py-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-slate-300 text-slate-800 ${props.className || ''}`} />;
-}
-function NoZoomTextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={`w-full bg-slate-50 p-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none placeholder:text-slate-300 text-slate-800 leading-relaxed ${props.className || ''}`} />;
-}
+type Props = { params: Promise<{ slug: string }> };
 
-export default function EventEdit({ params }: Props) {
-  const { id } = use(params);
-
-  // --- State ---
+export default function EventViewer({ params }: Props) {
+  const { slug } = use(params);
   const [event, setEvent] = useState<any>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>("edit");
-  const [msg, setMsg] = useState<{ text: string; isError: boolean } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [liveMode, setLiveMode] = useState(false);
   
-  // Share & QR
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [qrCodeData, setQrCodeData] = useState<string>("");
-
-  // UI State
-  const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
-
-  // Cover Image & Footer Links
-  const [uploadingCover, setUploadingCover] = useState(false);
-  const [coverImageDraft, setCoverImageDraft] = useState<string | null>(null);
+  // Footer Links
   const [footerLinks, setFooterLinks] = useState<{survey?: string, donation?: string}>({});
-  const [isEventDirty, setIsEventDirty] = useState(false);
+  
+  // Floating Timer State
+  const [activeBreak, setActiveBreak] = useState<{end: string, duration: string} | null>(null);
 
-  // Live Mode
-  const [encoreRevealed, setEncoreRevealed] = useState(false);
-  const [playingItemId, setPlayingItemId] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
-  const [customBreakTime, setCustomBreakTime] = useState("15");
-
-  // DnD Sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  const pageRef = useRef<HTMLDivElement>(null);
-
-  // --- Init ---
-  useEffect(() => { load(); }, [id]);
+  // Load Data
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    let channel: any;
+    async function init() {
+      setLoading(true);
+      const { data: e } = await supabase.from("events").select("*").eq("slug", slug).single();
+      if (!e) { setLoading(false); return; }
+      setEvent(e);
+      
+      const theme = typeof e.theme === 'string' ? JSON.parse(e.theme) : (e.theme || {});
+      setFooterLinks(theme.footer_links || {});
 
-  function showMsg(text: string, isError = false) {
-    setMsg({ text, isError });
-    setTimeout(() => setMsg(null), 3000);
-  }
+      const fetchBlocks = async () => {
+        const { data: b } = await supabase.from("blocks").select("*").eq("event_id", e.id).order("sort_order", { ascending: true });
+        setBlocks(b ?? []);
+        
+        // Check for active break
+        let foundBreak = null;
+        b?.forEach((block: any) => {
+           if(block.type === 'program') {
+             block.content?.items?.forEach((item: any) => {
+               if(item.type === 'break' && item.active && item.timerEnd && new Date(item.timerEnd).getTime() > Date.now()) {
+                 foundBreak = { end: item.timerEnd, duration: item.duration };
+               }
+             });
+           }
+        });
+        setActiveBreak(foundBreak);
+      };
+      await fetchBlocks();
+      setLoading(false);
 
-  async function load() {
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return;
-    const { data: e, error: e1 } = await supabase.from("events").select("*").eq("id", id).single();
-    if (e1) { showMsg(e1.message, true); return; }
-    setEvent(e);
-    setCoverImageDraft(e.cover_image ?? null);
-    
-    const theme = typeof e.theme === 'string' ? JSON.parse(e.theme) : (e.theme || {});
-    setFooterLinks(theme.footer_links || {});
-
-    setIsEventDirty(false);
-    setEncoreRevealed(e.encore_revealed ?? false);
-    const { data: b } = await supabase.from("blocks").select("*").eq("event_id", id).order("sort_order", { ascending: true });
-    setBlocks(b ?? []);
-
-    if (e?.slug && typeof window !== 'undefined') {
-      const url = `${window.location.origin}/e/${e.slug}`;
-      QRCode.toDataURL(url, { width: 400, margin: 2 }, (err: any, url: string) => {
-        if (!err) setQrCodeData(url);
-      });
+      channel = supabase.channel("viewer")
+        .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `id=eq.${e.id}` }, (payload: any) => {
+            const ne = payload.new;
+            setEvent(ne);
+            const nth = typeof ne.theme === 'string' ? JSON.parse(ne.theme) : (ne.theme || {});
+            setFooterLinks(nth.footer_links || {});
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "blocks", filter: `event_id=eq.${e.id}` }, async () => {
+             await fetchBlocks();
+        })
+        .subscribe();
     }
-  }
+    init();
+    return () => { if (channel) supabase.removeChannel(channel); };
+  }, [slug]);
 
-  // --- Sorting ---
-  async function moveBlock(blockId: string, dir: "up" | "down") {
-    const idx = blocks.findIndex((b) => b.id === blockId);
-    const to = dir === "up" ? idx - 1 : idx + 1;
-    if (idx < 0 || to < 0 || to >= blocks.length) return;
-    const newBlocks = [...blocks];
-    [newBlocks[idx], newBlocks[to]] = [newBlocks[to], newBlocks[idx]];
-    setBlocks(newBlocks);
-    await Promise.all([
-      supabase.from("blocks").update({ sort_order: (idx + 1) * 10 }).eq("id", newBlocks[idx].id),
-      supabase.from("blocks").update({ sort_order: (to + 1) * 10 }).eq("id", newBlocks[to].id),
-    ]);
-  }
+  const cssVars = useMemo(() => getThemeColors(event?.theme?.palette), [event]);
 
-  async function handleDragEnd(event: any) {
-    const { active, over } = event;
-    if (active.id !== over.id) {
-      setBlocks((items) => {
-        const oldIndex = items.findIndex((i) => i.id === active.id);
-        const newIndex = items.findIndex((i) => i.id === over.id);
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        const updates = newItems.map((b, i) => ({ id: b.id, sort_order: (i + 1) * 10 }));
-        Promise.all(updates.map(u => supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id)));
-        return newItems;
-      });
-    }
-  }
-
-  // --- Actions ---
-  async function handleCoverUpload(e: any) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingCover(true);
-    try {
-      const ext = file.name.split(".").pop();
-      const fileName = `cover_${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from("pamp-images").upload(`covers/${fileName}`, file);
-      if (error) throw error;
-      const { data } = supabase.storage.from("pamp-images").getPublicUrl(`covers/${fileName}`);
-      setCoverImageDraft(data.publicUrl);
-      setIsEventDirty(true);
-    } catch { showMsg("失敗しました", true); }
-    finally { setUploadingCover(false); }
-  }
-
-  async function saveEventMeta() {
-    if (!isEventDirty) return;
-    setLoading(true);
-    const currentTheme = typeof event.theme === 'string' ? JSON.parse(event.theme) : (event.theme || {});
-    const newTheme = { ...currentTheme, footer_links: footerLinks };
-
-    const { error } = await supabase.from("events").update({ 
-      cover_image: coverImageDraft,
-      theme: newTheme
-    }).eq("id", id);
-
-    if (!error) {
-      setEvent((prev: any) => ({ ...prev, cover_image: coverImageDraft, theme: newTheme }));
-      setIsEventDirty(false);
-      showMsg("設定を保存しました✨");
-    }
-    setLoading(false);
-  }
-
-  async function toggleEncore() {
-    const next = !encoreRevealed;
-    setEncoreRevealed(next);
-    await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
-  }
-
-  async function toggleActiveItem(blockId: string, itemIndex: number) {
-    if (!blocks || blocks.length === 0) return;
-    const targetBlockIndex = blocks.findIndex((b) => b.id === blockId);
-    const targetBlock = blocks[targetBlockIndex];
-    if (!targetBlock?.content?.items) return;
-
-    const items = [...targetBlock.content.items];
-    const targetId = `${blockId}-${itemIndex}`;
-    const isCurrentlyActive = playingItemId === targetId;
-    
-    setPlayingItemId(isCurrentlyActive ? null : targetId);
-    items.forEach((it, idx) => {
-        if (idx === itemIndex) it.active = !isCurrentlyActive;
-        else it.active = false; 
-    });
-    
-    const newBlocks = [...blocks];
-    newBlocks[targetBlockIndex] = { ...targetBlock, content: { ...targetBlock.content, items } };
-    setBlocks(newBlocks);
-    await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
-  }
-
-  // --- Break Logic ---
-  async function startBreak(minutes: number) {
-    let targetBlockId = null;
-    let targetItemIndex = -1;
-
-    const currentActive = getActiveItemInfo();
-    if (currentActive?.item.type === "break") {
-        targetBlockId = currentActive.block.id;
-        targetItemIndex = currentActive.index;
-    } else {
-        for (const b of blocks) {
-            if (b.type === "program" && b.content?.items) {
-                const idx = b.content.items.findIndex((it:any) => it.type === "break");
-                if (idx !== -1) {
-                    targetBlockId = b.id;
-                    targetItemIndex = idx;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (!targetBlockId) return showMsg("リストに休憩項目がありません", true);
-
-    const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
-    const target = blocks[targetIndex];
-    const end = new Date(Date.now() + minutes * 60000).toISOString();
-    const newItems = [...target.content.items];
-    
-    newItems.forEach(it => it.active = false);
-    
-    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
-    setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
-    
-    const newBlocks = [...blocks];
-    newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
-    setBlocks(newBlocks);
-
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
-    showMsg(`${minutes}分の休憩を開始しました⏳`);
-  }
-
-  async function stopBreak() {
-    const active = getActiveItemInfo();
-    if (!active || active.item.type !== "break") return;
-
-    const targetIndex = blocks.findIndex(b => b.id === active.block.id);
-    const target = blocks[targetIndex];
-    const newItems = [...target.content.items];
-    newItems[active.index] = { ...newItems[active.index], timerEnd: null, active: false };
-
-    setPlayingItemId(null);
-    const newBlocks = [...blocks];
-    newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
-    setBlocks(newBlocks);
-
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
-    showMsg("休憩を終了しました");
-  }
-
-  // --- Add/Edit/Delete ---
-  async function addBlock(type: string) {
-    setIsAddMenuOpen(false);
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return;
-    const maxOrder = blocks.reduce((m, b) => Math.max(m, b.sort_order ?? 0), 0);
-    let content = {};
-    if (type === "greeting") content = { text: "", author: "", role: "", image: "" };
-    if (type === "program") content = { items: [{ type: "song", title: "", composer: "", performer: "", description: "" }] };
-    if (type === "profile") content = { people: [{ name: "", role: "", bio: "", image: "", sns: {} }] };
-    if (type === "gallery") content = { title: "", images: [], caption: "" };
-    if (type === "free") content = { title: "", text: "" };
-
-    const { data, error } = await supabase.from("blocks").insert({
-      event_id: id, owner_id: u.user.id, type, sort_order: maxOrder + 10, content
-    }).select().single();
-
-    if (!error && data) {
-      await load();
-      setExpandedBlockId(data.id);
-      setTimeout(() => pageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 100);
-    }
-  }
-
-  async function saveBlockContent(blockId: string, content: any) {
-    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content } : b)));
-    const { error } = await supabase.from("blocks").update({ content }).eq("id", blockId);
-    if (error) throw error;
-  }
-
-  async function deleteBlock(blockId: string) {
-    if (!confirm("削除してよろしいですか？")) return;
-    const { error } = await supabase.from("blocks").delete().eq("id", blockId);
-    if (!error) {
-       setBlocks((prev) => prev.filter((b) => b.id !== blockId));
-       if (expandedBlockId === blockId) setExpandedBlockId(null);
-       showMsg("削除しました");
-    }
-  }
-
-  // --- Share Logic ---
-  const handleCopyLink = () => {
-    if (typeof window !== 'undefined') {
-        const url = `${window.location.origin}/e/${event.slug}`;
-        navigator.clipboard.writeText(url);
-        showMsg("URLをコピーしました📋");
-    }
-  };
-  const handleShareLine = () => {
-    if (typeof window !== 'undefined') {
-        window.open(`https://line.me/R/msg/text/?${encodeURIComponent(event.title + " " + `${window.location.origin}/e/${event.slug}`)}`, '_blank');
-    }
-  };
-  const handleShareMail = () => {
-    if (typeof window !== 'undefined') {
-        window.open(`mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(`${window.location.origin}/e/${event.slug}`)}`);
-    }
-  };
-
-  const getActiveItemInfo = () => {
-      if (!playingItemId) return null;
-      const [bId, iIdxStr] = playingItemId.split("-");
-      const iIdx = parseInt(iIdxStr);
-      const block = blocks.find(b => b.id === bId);
-      if (!block || !block.content?.items) return null;
-      const item = block.content.items[iIdx];
-      if (!item) return null;
-      return { block, item, index: iIdx };
-  };
-  const activeInfo = getActiveItemInfo();
-  const displayCover = coverImageDraft ?? event?.cover_image;
-
-  if (!event) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-slate-400" /></div>;
+  if (loading) return <LoadingScreen />;
+  if (!event) return notFound();
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900" ref={pageRef}>
-      
-      {/* HEADER */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 safe-top shadow-sm">
-        <div className="flex justify-between items-center px-4 py-3 h-14">
-           <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
-           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-full active:scale-95 transition-transform"><Eye size={18} /></Link>
-        </div>
-        <div className="px-4 pb-3">
-           <div className="flex bg-slate-100 p-1 rounded-xl">
-              <button onClick={() => setActiveTab("edit")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "edit" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400"}`}>
-                 編集モード
-              </button>
-              <button onClick={() => setActiveTab("live")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "live" ? "bg-slate-800 text-white shadow-sm" : "text-slate-400"}`}>
-                 本番モード
-              </button>
-           </div>
-        </div>
-      </header>
-
-      {/* TOAST */}
-      <div className={`fixed top-28 inset-x-0 flex justify-center pointer-events-none z-[60] transition-all ${msg ? 'opacity-100 translate-y-2' : 'opacity-0 -translate-y-4'}`}>
-        {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
-      </div>
-
-      {/* SHARE MODAL */}
-      {showShareModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowShareModal(false)}>
-           <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              <div className="bg-slate-50 p-8 flex flex-col items-center text-center">
-                 <h3 className="font-bold text-lg text-slate-800 mb-6">プログラムを配布</h3>
-                 <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm mb-6">
-                    {qrCodeData && <img src={qrCodeData} alt="QR" className="w-40 h-40 mix-blend-multiply" />}
-                 </div>
-                 <div className="grid grid-cols-3 gap-3 w-full">
-                    <button onClick={handleShareLine} className="flex flex-col items-center gap-2 p-3 bg-[#06C755]/10 rounded-2xl hover:bg-[#06C755]/20 active:scale-95 transition-all"><div className="w-10 h-10 bg-[#06C755] rounded-full flex items-center justify-center text-white"><ExternalLink size={20}/></div><span className="text-[10px] font-bold text-slate-600">LINE</span></button>
-                    <button onClick={handleCopyLink} className="flex flex-col items-center gap-2 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all"><div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-600"><Copy size={20}/></div><span className="text-[10px] font-bold text-slate-600">コピー</span></button>
-                    <button onClick={handleShareMail} className="flex flex-col items-center gap-2 p-3 bg-blue-50 rounded-2xl hover:bg-blue-100 active:scale-95 transition-all"><div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white"><Mail size={20}/></div><span className="text-[10px] font-bold text-slate-600">メール</span></button>
-                 </div>
-              </div>
-              <div className="p-4 bg-white border-t border-slate-100">
-                 <button className="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-95 transition-transform" onClick={() => setShowShareModal(false)}>閉じる</button>
-              </div>
-           </div>
-        </div>
+    <div 
+      className={cn(
+        "min-h-screen transition-colors duration-1000 ease-in-out selection:bg-[var(--accent)]/20",
+        mincho.className,
+        liveMode ? "bg-[var(--live-bg)] text-[var(--live-text)]" : "bg-[var(--bg)] text-[var(--text)]"
       )}
+      style={cssVars}
+    >
+      {/* Paper Texture (Visible in Light Mode) */}
+      <div className={cn(
+        "fixed inset-0 pointer-events-none z-50 mix-blend-multiply transition-opacity duration-1000",
+        liveMode ? "opacity-0" : "opacity-[0.03]"
+      )} style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
+      
+      {/* Live Mode Controls */}
+      <nav className="fixed top-6 right-6 z-50 flex items-center gap-3 mix-blend-difference text-white">
+        <button 
+          onClick={() => setLiveMode(!liveMode)}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 rounded-full backdrop-blur-xl border transition-all duration-500 shadow-2xl",
+            liveMode 
+              ? "bg-white/10 border-white/20 text-[var(--live-accent)] shadow-[0_0_20px_rgba(252,211,77,0.3)]" 
+              : "bg-black/10 border-white/10 text-white/80 hover:bg-black/20"
+          )}
+        >
+          <Music size={14} className={liveMode ? "animate-pulse" : ""} />
+          <span className={cn("text-[10px] tracking-widest font-bold uppercase", cinzel.className)}>
+            {liveMode ? "Live Mode" : "View"}
+          </span>
+        </button>
+      </nav>
 
-      {/* MAIN CONTENT */}
-      <main className={`h-[calc(100dvh-7.5rem)] overflow-hidden ${activeTab==='live' ? 'bg-slate-950 text-slate-200' : 'bg-slate-50'}`}>
-        
-        {/* === EDIT TAB === */}
-        {activeTab === "edit" && (
-          <div className="h-full overflow-y-auto pb-32 p-4 space-y-6">
-            
-            {/* DISTRIBUTE */}
-            <button onClick={() => setShowShareModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform">
-               <Share2 size={20}/> パンフレットを配布する
-            </button>
-
-            {/* SETTINGS CARD 1: COVER */}
-            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
-               <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
-                  <Settings size={18} className="text-slate-400"/>
-                  <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
-               </div>
-               <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
-               <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
-                  {displayCover ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={displayCover} className="w-full h-full object-cover" alt="" />
-                  ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
-                  )}
-                  <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
-                  <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
-                     {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
-                  </div>
-                  <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                  </label>
-               </div>
-               {isEventDirty && (
-                 <div className="flex justify-end pt-4">
-                   <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
-                 </div>
-               )}
-            </section>
-
-            {/* SETTINGS CARD 2: ACTIONS */}
-            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
-               <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
-                  <LinkIcon size={18} className="text-slate-400"/>
-                  <h3 className="text-sm font-bold text-slate-600">アクションボタン設定</h3>
-               </div>
-               <div className="space-y-4">
-                   <div>
-                     <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">アンケート URL</label>
-                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
-                       <MessageCircle size={18} className="text-slate-400 shrink-0"/>
-                       <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://forms.google.com/..." value={footerLinks.survey || ""} onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }} />
-                     </div>
-                   </div>
-                   <div>
-                     <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">寄付・支援 URL</label>
-                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
-                       <Heart size={18} className="text-slate-400 shrink-0"/>
-                       <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://..." value={footerLinks.donation || ""} onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }} />
-                     </div>
-                   </div>
-               </div>
-               {isEventDirty && (
-                 <div className="flex justify-end pt-4">
-                   <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
-                 </div>
-               )}
-            </section>
-
-            {/* BLOCKS */}
-            <div className="space-y-4">
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                    {blocks.map((b, i) => (
-                      <div key={b.id} className="relative">
-                         <BlockCard 
-                            block={b} index={i} total={blocks.length} 
-                            isExpanded={expandedBlockId === b.id}
-                            onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
-                            onSave={saveBlockContent} onDelete={deleteBlock} onMove={moveBlock} supabaseClient={supabase} 
-                        />
-                      </div>
-                    ))}
-                  </SortableContext>
-                </DndContext>
-            </div>
-
-            {blocks.length === 0 && (
-              <div className="text-center py-16 text-slate-400 bg-white rounded-[2rem] border border-dashed border-slate-200">
-                <p className="text-sm font-bold">コンテンツがありません</p>
-                <p className="text-xs mt-1">「＋」ボタンで追加してください</p>
-              </div>
-            )}
-            <div className="h-24" />
-          </div>
+      {/* Floating Timer (Bottom Right) */}
+      <AnimatePresence>
+        {activeBreak && (
+           <motion.div 
+             initial={{ y: 100, opacity: 0 }}
+             animate={{ y: 0, opacity: 1 }}
+             exit={{ y: 100, opacity: 0 }}
+             className={cn(
+               "fixed bottom-8 right-6 z-40 backdrop-blur-md border p-4 rounded-2xl shadow-2xl flex flex-col items-center gap-1",
+               liveMode ? "bg-white/5 border-[var(--live-accent)]/30 text-[var(--live-accent)]" : "bg-white/40 border-[var(--accent)]/30 text-[var(--accent)]"
+             )}
+           >
+              <span className="text-[9px] font-bold uppercase tracking-widest flex items-center gap-1"><Coffee size={10}/> Intermission</span>
+              <Countdown target={activeBreak.end} />
+           </motion.div>
         )}
+      </AnimatePresence>
 
-        {/* === LIVE TAB (COCKPIT) === */}
-        {activeTab === "live" && (
-          <div className="h-full flex flex-col relative">
-            {/* 1. Encore Switch */}
-            <div className="shrink-0 bg-slate-900/50 border-b border-slate-800 p-4 flex items-center justify-between">
-               <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${encoreRevealed ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-slate-700'}`}></div>
-                  <span className="text-xs font-bold tracking-widest uppercase text-slate-400">Encore Mode</span>
-               </div>
-               <button onClick={toggleEncore} className={`w-14 h-8 rounded-full border transition-all relative ${encoreRevealed ? 'bg-pink-600 border-pink-500' : 'bg-slate-800 border-slate-700'}`}>
-                  <div className={`absolute top-1 bottom-1 w-6 bg-white rounded-full transition-all ${encoreRevealed ? 'left-7' : 'left-1'}`}></div>
-               </button>
-            </div>
-
-            {/* 2. Timeline */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-               {blocks.filter(b => b.type === "program").map(block => (
-                  <div key={block.id}>
-                     {block.content.items?.map((item: any, i: number) => {
-                        const isActive = playingItemId === `${block.id}-${i}`;
-                        const isBreak = item.type === "break";
-                        if (item.type === "section") return <div key={i} className="pt-8 pb-2 pl-2 text-xs font-bold text-slate-600 border-b border-slate-800 mb-2 uppercase tracking-widest">{item.title}</div>;
-                        if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-900/20 text-yellow-500 border border-yellow-700/30 text-xs rounded">📝 {item.title}</div>;
-                        return (
-                           <div 
-                             key={i} 
-                             onClick={() => !isBreak && toggleActiveItem(block.id, i)}
-                             className={`p-4 flex items-center gap-4 transition-all rounded-xl cursor-pointer border ${isActive ? 'bg-indigo-900/20 border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'bg-slate-900/40 border-slate-800 opacity-60 hover:opacity-100'}`}
-                           >
-                              <div className="shrink-0">
-                                 {isActive ? (
-                                    isBreak ? <Coffee className="text-orange-400 animate-pulse"/> : <div className="w-3 h-3 bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8] animate-pulse"></div>
-                                 ) : (
-                                    <div className="w-2 h-2 rounded-full bg-slate-600"></div>
-                                 )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                 <div className={`text-base ${isActive ? 'font-bold text-white' : 'font-medium text-slate-400'}`}>{item.title}</div>
-                                 <div className="text-xs text-slate-500 mt-1">{isBreak ? item.duration : item.composer}</div>
-                              </div>
-                              {isActive && !isBreak && <span className="text-[10px] font-bold text-indigo-400 border border-indigo-500/50 px-2 py-1 rounded uppercase tracking-wider">Playing</span>}
-                              {isBreak && isActive && <span className="text-[10px] font-bold text-orange-400 border border-orange-500/50 px-2 py-1 rounded uppercase tracking-wider">Break</span>}
-                           </div>
-                        )
-                     })}
-                  </div>
-               ))}
-               <div className="h-40"/>
-            </div>
-
-            {/* 3. Break Controller */}
-            <div className="shrink-0 bg-slate-900 border-t border-slate-800 p-5 pb-8 relative z-20">
-               {activeInfo?.item.type === "break" ? (
-                  <div className="flex items-center gap-6">
-                     <div className="flex-1">
-                        <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Coffee size={12}/> Intermission</div>
-                        <div className="text-5xl font-black text-white tabular-nums font-mono leading-none tracking-tight" style={{textShadow: "0 0 30px rgba(249,115,22,0.4)"}}>
-                           {(() => {
-                              if (!activeInfo.item.timerEnd) return "--:--";
-                              const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
-                              if (diff <= 0) return "00:00";
-                              const m = Math.floor(diff / 60000);
-                              const s = Math.floor((diff % 60000) / 1000);
-                              return `${m}:${s.toString().padStart(2, '0')}`;
-                           })()}
-                        </div>
-                     </div>
-                     <button onClick={stopBreak} className="h-16 w-16 rounded-full bg-red-600/20 border border-red-500 text-red-500 flex flex-col items-center justify-center active:scale-95 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
-                        <StopCircle size={24} />
-                        <span className="text-[9px] font-bold mt-1">STOP</span>
-                     </button>
-                  </div>
-               ) : (
-                  <div className="flex items-center gap-4 justify-between">
-                     {[10, 15, 20].map(min => (
-                        <button key={min} onClick={() => startBreak(min)} className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700 hover:border-slate-500 hover:text-white transition-all active:scale-90">
-                           {min}m
-                        </button>
-                     ))}
-                     <div className="h-10 w-px bg-slate-800"></div>
-                     <div className="flex flex-col items-center gap-1">
-                        <input type="number" className="w-16 bg-slate-800 border border-slate-700 rounded-lg text-center text-white font-bold text-sm py-1 outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-600" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
-                        <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-full shadow-lg active:scale-95 flex items-center gap-1 hover:bg-indigo-500 transition-colors">
-                           <Play size={10} fill="currentColor"/> Start
-                        </button>
-                     </div>
-                  </div>
-               )}
-            </div>
-          </div>
-        )}
+      <Hero event={event} liveMode={liveMode} />
+      
+      <main className="max-w-3xl mx-auto px-6 pb-20 space-y-24 relative z-10">
+        {blocks.map((block, i) => (
+          <BlockRenderer 
+            key={block.id} 
+            block={block} 
+            index={i} 
+            encoreRevealed={event.encore_revealed} 
+            liveMode={liveMode}
+          />
+        ))}
       </main>
 
-      {/* FAB */}
-      {activeTab === "edit" && (
-        <>
-          <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
-            <div className={`fixed bottom-24 inset-x-4 max-w-xl mx-auto bg-white/90 backdrop-blur-md border border-white/50 rounded-[2rem] p-6 transition-transform duration-300 shadow-2xl ${isAddMenuOpen ? 'translate-y-0' : 'translate-y-10 opacity-0'}`} onClick={e => e.stopPropagation()}>
-              <h3 className="text-center font-bold text-sm mb-6 text-slate-500">コンテンツを追加</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <AddMenuBtn label="ご挨拶" icon={MessageSquare} color="text-orange-500 bg-orange-50" onClick={() => addBlock("greeting")} />
-                <AddMenuBtn label="プログラム" icon={Music} color="text-blue-500 bg-blue-50" onClick={() => addBlock("program")} />
-                <AddMenuBtn label="出演者" icon={User} color="text-green-500 bg-green-50" onClick={() => addBlock("profile")} />
-                <AddMenuBtn label="ギャラリー" icon={Grid} color="text-pink-500 bg-pink-50" onClick={() => addBlock("gallery")} />
-                <AddMenuBtn label="フリー" icon={Type} color="text-indigo-500 bg-indigo-50" onClick={() => addBlock("free")} />
-              </div>
-            </div>
-          </div>
-          <button onClick={() => setIsAddMenuOpen(true)} className="fixed bottom-8 right-6 z-40 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center transition-transform active:scale-90 hover:scale-105">
-            <Plus size={28} />
-          </button>
-        </>
-      )}
-
+      <FooterActions links={footerLinks} liveMode={liveMode} />
+      <Footer event={event} liveMode={liveMode} />
     </div>
   );
 }
 
-// --- SUB COMPONENTS ---
+// ------------------------------------------------------------------
+// COMPONENTS
+// ------------------------------------------------------------------
 
-function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
+function LoadingScreen() {
   return (
-    <button onClick={onClick} className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl active:scale-95 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100 ${color}`}>
-      <Icon size={24} />
-      <span className="text-[10px] font-bold text-slate-600">{label}</span>
-    </button>
-  );
-}
-
-function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, onMove, supabaseClient }: any) {
-  const [content, setContent] = useState(block.content ?? {});
-  const [isDirty, setIsDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  
-  // Drag and Drop hooks
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: block.id });
-  const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isExpanded ? 50 : 'auto', position: 'relative' as 'relative' };
-
-  useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
-  const handleChange = (nc: any) => { setContent(nc); setIsDirty(true); };
-
-  const handleSave = async (e?: any) => {
-    e?.stopPropagation();
-    setSaving(true);
-    try { await onSave(block.id, content); setIsDirty(false); } catch { alert("エラー"); } finally { setSaving(false); }
-  };
-
-  const handleUpload = async (e: any, target: 'single' | 'gallery' | 'profile', index?: number) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const ext = file.name.split(".").pop();
-      const path = `uploads/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-      const { error } = await supabaseClient.storage.from("pamp-images").upload(path, file);
-      if (error) throw error;
-      const { data } = supabaseClient.storage.from("pamp-images").getPublicUrl(path);
-      if (target === 'single') handleChange({ ...content, image: data.publicUrl });
-      if (target === 'profile' && typeof index === 'number') {
-        const np = [...content.people]; np[index].image = data.publicUrl; handleChange({ ...content, people: np });
-      }
-      if (target === 'gallery') {
-         const current = content.images ?? (content.url ? [content.url] : []);
-         handleChange({ ...content, images: [...current, data.publicUrl] });
-      }
-    } catch { alert("アップロード失敗"); }
-  };
-
-  const labels: any = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", gallery: "ギャラリー", free: "フリーテキスト" };
-  const badgeColors: any = { greeting: "text-orange-500 bg-orange-50", program: "text-blue-500 bg-blue-50", profile: "text-green-500 bg-green-50", gallery: "text-pink-500 bg-pink-50", free: "text-indigo-500 bg-indigo-50" };
-  const TypeIcon = { greeting: MessageSquare, program: Music, profile: User, gallery: Grid, free: Type }[block.type as string] || Edit3;
-
-  return (
-    <div ref={setNodeRef} style={style} className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
-      <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
-        <div className="flex items-center gap-4">
-           {/* Drag Handle */}
-           {!isExpanded && (
-             <div {...attributes} {...listeners} className="p-2 text-slate-300 hover:text-indigo-500 cursor-grab active:cursor-grabbing" onClick={e=>e.stopPropagation()}>
-               <GripVertical size={20} />
-             </div>
-           )}
-           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${badgeColors[block.type] || 'bg-slate-100'}`}>
-             <TypeIcon size={20} />
-           </div>
-           <div>
-             <div className="text-sm font-bold text-slate-800">{labels[block.type]}</div>
-             {!isExpanded && <div className="text-[10px] text-slate-400 truncate max-w-[150px] mt-0.5 font-medium">
-                {block.type === 'free' ? content.title : block.type === 'greeting' ? content.author : 'タップして編集'}
-             </div>}
-           </div>
-        </div>
-        <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : 'text-slate-300'}`}><ChevronDown size={20} /></div>
+    <div className="fixed inset-0 flex items-center justify-center bg-[#F9F8F2] z-[9999]">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="animate-spin text-[#B48E55]" size={30} />
       </div>
+    </div>
+  );
+}
 
-      {isExpanded && (
-        <div className="p-5 pt-0 animate-in slide-in-from-top-2 cursor-auto" onClick={e => e.stopPropagation()}>
-           <div className="py-6 space-y-6 border-t border-slate-50">
-              {block.type === "greeting" && (
-                <>
-                  <div className="flex gap-4">
-                    <div className="relative w-24 h-24 bg-slate-100 rounded-2xl overflow-hidden shrink-0 border border-slate-200 group">
-                      {content.image ? <img src={content.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-8 text-slate-300"/>}
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors z-10"><Camera size={20} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} /></label>
-                    </div>
-                    <div className="flex-1 space-y-3">
-                      <InputField label="お名前"><NoZoomInput placeholder="氏名" value={content.author||""} onChange={e => handleChange({...content, author: e.target.value})} /></InputField>
-                      <InputField label="肩書き"><NoZoomInput placeholder="例: 主催者" value={content.role||""} onChange={e => handleChange({...content, role: e.target.value})} /></InputField>
-                    </div>
-                  </div>
-                  <InputField label="挨拶文"><NoZoomTextArea className="h-40" placeholder="本文..." value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
-                </>
-              )}
-              {block.type === "free" && (
-                  <>
-                    <InputField label="タイトル"><NoZoomInput placeholder="タイトル" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
-                    <InputField label="本文"><NoZoomTextArea className="h-40" placeholder="本文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
-                  </>
-              )}
-              {block.type === "gallery" && (
-                  <>
-                    <InputField label="タイトル"><NoZoomInput placeholder="Memories" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
-                    <div className="grid grid-cols-3 gap-3">
-                      {(content.images || (content.url ? [content.url] : [])).map((url:string, i:number) => (
-                          <div key={i} className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden shadow-sm">
-                            <img src={url} className="w-full h-full object-cover" alt="" />
-                            <button onClick={() => handleChange({...content, images: (content.images||[content.url]).filter((_:any,idx:number)=>idx!==i)})} className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1.5"><X size={12}/></button>
-                          </div>
-                       ))}
-                       <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 cursor-pointer"><Plus /><input type="file" className="hidden" accept="image/*" onChange={e => handleUpload(e, 'gallery')} /></label>
-                    </div>
-                    <InputField label="キャプション"><NoZoomInput placeholder="説明..." value={content.caption||""} onChange={e => handleChange({...content, caption: e.target.value})} /></InputField>
-                  </>
-              )}
-              
-              {/* PROFILE */}
-              {block.type === "profile" && (
-                <div className="space-y-4">
-                  {(content.people || []).map((p: any, i: number) => (
-                    <ProfileEditor key={i} p={p} 
-                      onChange={(newP:any) => {const np=[...content.people]; np[i]=newP; handleChange({...content, people:np})}}
-                      onDelete={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})}
-                      onUpload={(e:any) => handleUpload(e, 'profile', i)}
-                    />
-                  ))}
-                  <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:"", sns:{}}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm">+ 出演者を追加</button>
+function Hero({ event, liveMode }: any) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], ["0%", "50%"]);
+  const opacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
+
+  return (
+    <motion.header 
+      ref={ref}
+      className="relative h-[85vh] w-full overflow-hidden flex flex-col items-center justify-center text-center px-6 mb-20"
+    >
+      <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
+        {event.cover_image ? (
+          <img src={event.cover_image} className="w-full h-full object-cover" alt="cover" />
+        ) : (
+          <div className="w-full h-full bg-stone-200" />
+        )}
+        {/* Paper Blend Gradient: Transparent -> Paper Color */}
+        <div className={cn(
+          "absolute inset-0 bg-gradient-to-b from-black/20 via-transparent",
+          liveMode ? "to-[var(--live-bg)]" : "to-[var(--bg)]"
+        )} />
+      </motion.div>
+
+      <div className="relative z-10 text-white space-y-6 max-w-3xl pt-20">
+        <div className="inline-block border-y border-white/60 py-1.5 px-6 backdrop-blur-[2px] shadow-sm">
+          <span className={cn("text-xs tracking-[0.3em] uppercase font-bold drop-shadow-md", cinzel.className)}>
+            Digital Pamphlet
+          </span>
+        </div>
+        
+        {/* Strong Drop Shadow for Visibility */}
+        <h1 className={cn("text-4xl md:text-6xl font-bold leading-tight drop-shadow-[0_4px_6px_rgba(0,0,0,0.8)]", mincho.className)}>
+          {event.title}
+        </h1>
+        
+        <div className="flex flex-col items-center gap-2 text-sm font-medium tracking-wider drop-shadow-md">
+          {event.date && (
+            <div className="flex items-center gap-3">
+              <span className="w-6 h-px bg-white/80 box-shadow-sm"></span>
+              <span className={cormorant.className}>{new Date(event.date).toLocaleDateString()}</span>
+              <span className="w-6 h-px bg-white/80 box-shadow-sm"></span>
+            </div>
+          )}
+          {event.location && (
+            <div className="flex items-center gap-1.5 text-xs uppercase tracking-widest">
+              <MapPin size={12} /> {event.location}
+            </div>
+          )}
+        </div>
+      </div>
+      
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/60 flex flex-col items-center gap-2 drop-shadow-md">
+        <span className={cn("text-[9px] tracking-widest uppercase", cinzel.className)}>Scroll</span>
+        <div className="w-px h-8 bg-gradient-to-b from-white to-transparent" />
+      </motion.div>
+    </motion.header>
+  );
+}
+
+function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
+  const content = block.content || {};
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, margin: "-50px" });
+
+  const Wrapper = ({ children, className }: any) => (
+    <motion.section
+      ref={ref}
+      initial={{ opacity: 0, y: 20 }}
+      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
+      transition={{ duration: 0.8, ease: "easeOut" }}
+      className={cn("w-full", className)}
+    >
+      {children}
+    </motion.section>
+  );
+
+  switch (block.type) {
+    case "greeting":
+      return (
+        <Wrapper>
+          <SectionHeader title="Greeting" subtitle="ご挨拶" liveMode={liveMode} />
+          {content.image ? (
+             <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
+               {/* Magazine Style Layout */}
+               <div className="shrink-0 w-48 md:w-64 aspect-[3/4] relative p-2 bg-white shadow-sm rotate-1 border border-stone-100">
+                  <img src={content.image} className="w-full h-full object-cover" alt="Speaker" />
+               </div>
+               <div className="flex-1 space-y-6 md:pt-4">
+                 <div className="text-center md:text-left">
+                   <h3 className="text-xl font-bold tracking-widest">{content.author}</h3>
+                   <p className={cn("text-xs opacity-60 uppercase tracking-widest mt-1", cinzel.className)}>{content.role}</p>
+                 </div>
+                 <p className="text-sm md:text-base leading-8 text-justify opacity-90 whitespace-pre-wrap font-serif first-letter:text-3xl first-letter:font-bold first-letter:mr-1 first-letter:float-left">
+                   {content.text}
+                 </p>
+               </div>
+             </div>
+          ) : (
+             // No Image Layout (Letter Style)
+             <div className="max-w-xl mx-auto text-center space-y-8 py-8">
+                <p className="text-base md:text-lg leading-9 font-serif whitespace-pre-wrap opacity-90">
+                  {content.text}
+                </p>
+                <div className="pt-4">
+                   <div className="text-lg font-bold tracking-widest">{content.author}</div>
+                   <div className={cn("text-xs opacity-50 uppercase tracking-widest", cinzel.className)}>{content.role}</div>
                 </div>
-              )}
+             </div>
+          )}
+        </Wrapper>
+      );
 
-              {/* PROGRAM */}
-              {block.type === "program" && (
-                  <div className="space-y-4">
-                    {(content.items || []).map((item: any, i: number) => (
-                        <div key={i} className="group relative">
-                            {/* Section */}
-                            {item.type === "section" && (
-                              <div className="flex gap-2 items-center mt-6 mb-2">
-                                <div className="flex flex-col gap-1 mr-1">
-                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowUp size={14}/></button>
-                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowDown size={14}/></button>
-                                </div>
-                                <div className="flex-1 border-b border-indigo-200"><NoZoomInput className="!bg-transparent !py-2 text-indigo-700 font-bold text-sm !border-none !ring-0 !px-0" placeholder="セクション見出し" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
-                                <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
-                              </div>
-                            )}
-                            
-                            {/* Memo */}
-                            {item.type === "memo" && (
-                              <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2 items-center">
-                                 <div className="flex flex-col gap-1 mr-1">
-                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowUp size={12}/></button>
-                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowDown size={12}/></button>
-                                 </div>
-                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0 !placeholder-yellow-400/50" rows={1} placeholder="メモを入力..." value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
-                                 <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
-                              </div>
-                            )}
+    case "program":
+      return (
+        <Wrapper>
+          <SectionHeader title="Program" subtitle="プログラム" liveMode={liveMode} />
+          <div className="space-y-6">
+            {(content.items || []).map((item: any, i: number) => (
+              <ProgramItem key={i} item={item} index={i} encoreRevealed={encoreRevealed} liveMode={liveMode} />
+            ))}
+          </div>
+        </Wrapper>
+      );
 
-                            {/* Song / Break Item */}
-                            {(item.type === "song" || item.type === "break") && (
-                                <ProgramItemEditor 
-                                  item={item} 
-                                  index={i} 
-                                  total={content.items.length}
-                                  onChange={(newItem:any) => {const ni=[...content.items]; ni[i]=newItem; handleChange({...content, items:ni})}}
-                                  onDelete={() => {const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni})}}
-                                  onMove={(dir: 'up'|'down') => {
-                                     const ni=[...content.items];
-                                     const to = dir==='up' ? i-1 : i+1;
-                                     if(to>=0 && to<ni.length) { [ni[i],ni[to]]=[ni[to],ni[i]]; handleChange({...content, items:ni}); }
-                                  }}
-                                />
-                            )}
-                        </div>
-                    ))}
-                    
-                    <div className="grid grid-cols-2 gap-3 pt-2">
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"song",title:"",composer:"",performer:"",description:"",isEncore:false}]})} className="py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-indigo-100">+ 曲</button>
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"break",title:"休憩",duration:"15分"}]})} className="py-3 bg-slate-100 text-slate-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-slate-200">+ 休憩</button>
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"section",title:"新しいセクション"}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ 見出し</button>
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"memo",title:""}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ メモ</button>
-                    </div>
-                  </div>
+    case "profile":
+      return (
+        <Wrapper>
+          <SectionHeader title="Artists" subtitle="出演者" liveMode={liveMode} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-12">
+            {(content.people || []).map((p: any, i: number) => (
+              <ProfileItem key={i} p={p} liveMode={liveMode} />
+            ))}
+          </div>
+        </Wrapper>
+      );
+
+    case "gallery":
+      return (
+        <Wrapper>
+          {/* Watermark Background */}
+          <div className="relative">
+             <div className={cn(
+               "absolute -top-20 left-1/2 -translate-x-1/2 text-[100px] md:text-[150px] font-bold opacity-[0.03] select-none pointer-events-none whitespace-nowrap",
+               cinzel.className
+             )}>
+               GALLERY
+             </div>
+             
+             {/* Header */}
+             <div className="text-center mb-8 relative z-10">
+                <h3 className={cn("text-lg font-bold tracking-widest uppercase mb-2", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}>{content.title || "Memories"}</h3>
+                {content.caption && <p className="text-xs opacity-60 font-serif max-w-md mx-auto">{content.caption}</p>}
+             </div>
+
+             {/* Grid Layout */}
+             <div className="grid grid-cols-2 md:grid-cols-3 gap-1 md:gap-2">
+                {(content.images || []).map((url: string, i: number) => (
+                   <div key={i} className="aspect-square relative overflow-hidden group bg-stone-100">
+                      <img src={url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                   </div>
+                ))}
+             </div>
+          </div>
+        </Wrapper>
+      );
+
+    case "free":
+      return (
+        <Wrapper>
+          <div className="mb-8 pl-4 border-l-2 border-[var(--accent)]/50">
+             <h3 className={cn("text-xl font-bold tracking-widest font-serif", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}>
+               {content.title || "Information"}
+             </h3>
+          </div>
+          <div className="max-w-2xl px-4">
+            <p className="text-sm md:text-base leading-8 whitespace-pre-wrap opacity-90 font-serif">
+              {content.text}
+            </p>
+          </div>
+        </Wrapper>
+      );
+
+    default: return null;
+  }
+}
+
+// ------------------------------------------------------------------
+// SUB COMPONENTS
+// ------------------------------------------------------------------
+
+function SectionHeader({ title, subtitle, liveMode }: any) {
+  return (
+    <div className="text-center mb-16 relative">
+      <div className="flex items-center justify-center gap-4 mb-2">
+         <div className={cn("h-px w-8", liveMode ? "bg-[var(--live-line)]" : "bg-[var(--line)]")}></div>
+         <h2 className={cn("text-2xl font-normal tracking-widest uppercase", cinzel.className, liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}>
+           {title}
+         </h2>
+         <div className={cn("h-px w-8", liveMode ? "bg-[var(--live-line)]" : "bg-[var(--line)]")}></div>
+      </div>
+      <span className="text-[10px] tracking-[0.2em] opacity-40 uppercase">{subtitle}</span>
+    </div>
+  );
+}
+
+function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
+  const [isOpen, setIsOpen] = useState(false);
+  const isBreak = item.type === "break";
+  const isSection = item.type === "section";
+  const active = item.active === true;
+
+  if (item.isEncore && !encoreRevealed) return null;
+
+  // --- Section (Hairline) ---
+  if (isSection) {
+    return (
+      <div className="py-10 flex items-center justify-center relative z-10">
+        <div className={cn("h-px w-full absolute top-1/2 left-0 -z-10", liveMode ? "bg-[var(--live-line)]" : "bg-[var(--line)]")}></div>
+        <span className={cn(
+          "px-6 text-sm font-bold tracking-[0.2em] uppercase font-serif",
+          liveMode ? "bg-[var(--live-bg)] text-[var(--live-accent)]" : "bg-[var(--bg)] text-[var(--accent)]"
+        )}>
+          {item.title}
+        </span>
+      </div>
+    );
+  }
+
+  // --- Memo ---
+  if (item.type === "memo") {
+    return (
+      <div className="flex justify-center py-2 opacity-50">
+        <span className={cn("text-xs italic tracking-wider", cormorant.className)}>* {item.title}</span>
+      </div>
+    );
+  }
+
+  // --- Break ---
+  if (isBreak) {
+    return (
+      <div className={cn(
+        "py-8 flex flex-col items-center justify-center gap-2 transition-all duration-700 border-y my-4",
+        liveMode 
+          ? (active ? "bg-[var(--live-accent)]/10 border-[var(--live-accent)]/20 text-[var(--live-accent)]" : "border-transparent opacity-40")
+          : (active ? "bg-[var(--accent)]/5 border-[var(--accent)]/20" : "border-transparent opacity-50")
+      )}>
+        <Coffee size={16} className={active ? "animate-bounce" : ""} />
+        <span className="text-xs font-bold tracking-[0.3em] uppercase">休 憩</span>
+        {active && item.timerEnd ? (
+           <div className="text-sm font-mono font-bold animate-pulse">In Progress</div>
+        ) : (
+           <span className={cn("text-sm italic", cormorant.className)}>{item.duration}</span>
+        )}
+      </div>
+    );
+  }
+
+  // --- Song ---
+  return (
+    <div className="relative group">
+      {/* Live Glow Effect */}
+      {active && liveMode && (
+         <div className="absolute -inset-4 rounded-xl bg-[var(--live-glow)] blur-xl opacity-50 animate-pulse pointer-events-none"></div>
+      )}
+      
+      <div 
+        className={cn(
+           "py-4 px-2 md:px-4 cursor-pointer transition-all duration-700 rounded-lg border-l-2",
+           active 
+             ? (liveMode ? "border-[var(--live-accent)] bg-white/5" : "border-[var(--accent)] bg-[var(--accent)]/5")
+             : "border-transparent hover:bg-black/5"
+        )}
+        onClick={() => item.description && setIsOpen(!isOpen)}
+      >
+        {/* Row 1: Title & Composer */}
+        <div className="flex items-baseline justify-between gap-4 mb-2">
+           <h3 className={cn(
+             "text-base md:text-xl font-bold leading-snug font-serif", 
+             active ? (liveMode ? "text-[var(--live-accent)] drop-shadow-[0_0_8px_rgba(252,211,77,0.5)]" : "text-[var(--accent)]") : ""
+           )}>
+             {item.title}
+           </h3>
+           <span className={cn("text-sm opacity-60 italic shrink-0", cormorant.className)}>{item.composer}</span>
+        </div>
+        
+        {/* Row 2: Performer & Tags */}
+        <div className="flex items-center justify-between">
+           <div className="flex items-center gap-3">
+              {item.performer && (
+                 <span className={cn(
+                   "text-xs font-serif tracking-wide opacity-80",
+                   active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)] font-bold") : ""
+                 )}>
+                   {item.performer}
+                 </span>
               )}
+              {active && <span className={cn("text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}><Sparkles size={10}/> Playing</span>}
            </div>
-           
-           <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-             <button onClick={() => onDelete(block.id)} className="text-red-400 hover:text-red-600 p-2 text-xs font-bold flex items-center gap-1"><Trash2 size={16}/> 削除</button>
-             {isDirty && (<button onClick={handleSave} disabled={saving} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all hover:bg-slate-800">{saving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} 保存</button>)}
+           {item.isEncore && <span className={cn("text-[9px] px-1.5 py-0.5 border border-current rounded-full opacity-50", cinzel.className)}>Encore</span>}
+        </div>
+
+        {/* Accordion: Description */}
+        <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0")}>
+           <div className="overflow-hidden min-h-0">
+              <div className={cn("h-px w-full mb-3 opacity-20", liveMode ? "bg-white" : "bg-black")}></div>
+              <p className="text-sm leading-7 text-justify opacity-80 font-serif">
+                {item.description}
+              </p>
            </div>
         </div>
+        
+        {item.description && (
+           <div className="flex justify-center mt-2 opacity-20 group-hover:opacity-50 transition-opacity">
+              <ChevronDown size={12} className={cn("transition-transform duration-300", isOpen ? "rotate-180" : "")} />
+           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Countdown({ target }: { target: string }) {
+  const [left, setLeft] = useState("");
+  useEffect(() => {
+    const i = setInterval(() => {
+      const d = new Date(target).getTime() - Date.now();
+      if (d <= 0) { setLeft(""); clearInterval(i); return; }
+      setLeft(`${Math.floor(d/60000)}:${Math.floor((d%60000)/1000).toString().padStart(2,"0")}`);
+    }, 1000);
+    return () => clearInterval(i);
+  }, [target]);
+  if(!left) return null;
+  return <div className="text-2xl font-mono font-bold tracking-widest">{left}</div>;
+}
+
+function ProfileItem({ p, liveMode }: any) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="flex gap-5 items-start">
+      {/* Photo */}
+      <div className={cn(
+        "relative w-20 h-24 md:w-24 md:h-32 rounded-sm overflow-hidden border shrink-0 shadow-sm",
+        liveMode ? "border-[var(--live-line)] bg-white/5" : "border-stone-200 bg-stone-100"
+      )}>
+        {p.image ? (
+          <img src={p.image} className="w-full h-full object-cover" alt={p.name} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center opacity-20"><User size={24}/></div>
+        )}
+      </div>
+      
+      {/* Info */}
+      <div className="flex-1 min-w-0 pt-1">
+        <h3 className="text-lg font-bold font-serif leading-snug">{p.name}</h3>
+        <p className={cn("text-[10px] tracking-[0.2em] uppercase opacity-50 mb-3", cinzel.className)}>{p.role}</p>
+        
+        {/* SNS Links */}
+        <div className="flex gap-3 mb-3 opacity-60">
+           {p.sns?.twitter && <a href={p.sns.twitter} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity"><Twitter size={14}/></a>}
+           {p.sns?.instagram && <a href={p.sns.instagram} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity"><Instagram size={14}/></a>}
+           {p.sns?.website && <a href={p.sns.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity"><Globe size={14}/></a>}
+        </div>
+
+        {/* Accordion Bio */}
+        <div className="relative">
+          <div className={cn("overflow-hidden transition-all duration-500", isOpen ? "max-h-[1000px]" : "max-h-0")}>
+             <p className="text-xs md:text-sm leading-6 opacity-70 font-serif whitespace-pre-wrap">
+               {p.bio}
+             </p>
+          </div>
+          {p.bio && (
+            <button onClick={() => setIsOpen(!isOpen)} className="text-[10px] uppercase tracking-widest opacity-40 hover:opacity-100 flex items-center gap-1 mt-1">
+               {isOpen ? "Close" : "Profile"} <ChevronDown size={10} className={isOpen ? "rotate-180" : ""}/>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FooterActions({ links, liveMode }: { links: { survey?: string, donation?: string }, liveMode: boolean }) {
+  if (!links.survey && !links.donation) return null;
+  return (
+    <div className="max-w-md mx-auto px-6 mb-20 space-y-4">
+      {links.survey && (
+        <a href={links.survey} target="_blank" rel="noopener noreferrer" className={cn(
+          "flex items-center justify-center gap-3 w-full py-4 rounded-sm transition-opacity hover:opacity-90",
+          liveMode ? "bg-[var(--live-text)] text-[var(--live-bg)]" : "bg-[var(--text)] text-[var(--bg)]"
+        )}>
+           <MessageCircle size={18} />
+           <span className="text-xs font-bold tracking-widest uppercase">アンケートに回答する</span>
+        </a>
+      )}
+      {links.donation && (
+        <a href={links.donation} target="_blank" rel="noopener noreferrer" className={cn(
+          "flex items-center justify-center gap-3 w-full py-4 border rounded-sm transition-colors",
+          liveMode ? "border-[var(--live-accent)] text-[var(--live-accent)] hover:bg-[var(--live-accent)]/10" : "border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)]/5"
+        )}>
+           <Heart size={18} />
+           <span className="text-xs font-bold tracking-widest uppercase">活動を支援する</span>
+           <ExternalLink size={12} className="opacity-50"/>
+        </a>
       )}
     </div>
   );
 }
 
-function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
-  const [open, setOpen] = useState(false);
+function Footer({ event, liveMode }: any) {
   return (
-    <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-       <div className="flex items-center gap-3 p-3 bg-white cursor-pointer select-none" onClick={() => setOpen(!open)}>
-          <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-100 shrink-0">
-             {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-2 text-slate-300" size={20}/>}
-          </div>
-          <div className="flex-1 min-w-0">
-             <div className="text-sm font-bold truncate text-slate-800">{p.name || "名称未設定"}</div>
-             {!open && <div className="text-[10px] text-slate-400 truncate">{p.role}</div>}
-          </div>
-          <ChevronDown size={16} className={`text-slate-300 transition-transform ${open?'rotate-180':''}`}/>
-       </div>
-
-       {open && (
-         <div className="p-4 space-y-4 border-t border-slate-100 animate-in slide-in-from-top-1">
-            <div className="flex gap-4">
-               <div className="relative w-20 h-20 bg-white rounded-xl border border-slate-200 shrink-0 group">
-                  {p.image ? <img src={p.image} className="w-full h-full object-cover rounded-xl" alt=""/> : <User className="m-auto mt-6 text-slate-300"/>}
-                  <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer z-10"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={onUpload} /></label>
-               </div>
-               <div className="flex-1 space-y-2">
-                  <InputField label="名前"><NoZoomInput placeholder="氏名" value={p.name} onChange={e => onChange({...p, name: e.target.value})} /></InputField>
-                  <InputField label="役割"><NoZoomInput placeholder="例: Violin" value={p.role} onChange={e => onChange({...p, role: e.target.value})} /></InputField>
-               </div>
-            </div>
-            
-            <div className="space-y-2">
-               <label className="text-[10px] font-bold text-slate-400">SNSリンク</label>
-               <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-slate-200">
-                  <span className="text-xs font-bold text-slate-400 w-4">X</span>
-                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="https://x.com/..." value={p.sns?.twitter||""} onChange={e=>onChange({...p, sns:{...p.sns, twitter:e.target.value}})}/>
-               </div>
-               <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-slate-200">
-                  <Instagram size={14} className="text-slate-400 w-4"/>
-                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="https://instagram.com/..." value={p.sns?.instagram||""} onChange={e=>onChange({...p, sns:{...p.sns, instagram:e.target.value}})}/>
-               </div>
-               <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-slate-200">
-                  <Globe size={14} className="text-slate-400 w-4"/>
-                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="https://..." value={p.sns?.website||""} onChange={e=>onChange({...p, sns:{...p.sns, website:e.target.value}})}/>
-               </div>
-            </div>
-
-            <InputField label="プロフィール本文">
-               <NoZoomTextArea className="h-24 bg-white" placeholder="経歴などを入力..." value={p.bio} onChange={e => onChange({...p, bio: e.target.value})} />
-            </InputField>
-            
-            <div className="flex justify-end">
-               <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
-            </div>
-         </div>
-       )}
-    </div>
-  );
-}
-
-function ProgramItemEditor({ item, index, total, onChange, onDelete, onMove }: any) {
-  const [open, setOpen] = useState(false);
-  const isBreak = item.type === "break";
-
-  return (
-    <div className={`bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden ${item.isEncore ? 'ring-2 ring-pink-100 bg-pink-50/20' : ''}`}>
-       <div className="flex items-center p-3 gap-3 bg-white cursor-pointer select-none" onClick={() => setOpen(!open)}>
-          <div className="flex flex-col gap-0.5" onClick={e=>e.stopPropagation()}>
-             <button onClick={() => onMove('up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-0.5"><ArrowUp size={12}/></button>
-             <button onClick={() => onMove('down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-0.5"><ArrowDown size={12}/></button>
-          </div>
-          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-400">
-             {isBreak ? <Coffee size={16}/> : <Music size={16}/>}
-          </div>
-          <div className="flex-1 min-w-0">
-             <div className="text-sm font-bold truncate text-slate-800">{item.title || (isBreak ? "休憩" : "曲名未設定")}</div>
-             <div className="text-[10px] text-slate-400 truncate">{isBreak ? item.duration : item.composer}</div>
-          </div>
-          {item.isEncore && <Star size={14} className="text-pink-400 fill-pink-400"/>}
-          <ChevronDown size={16} className={`text-slate-300 transition-transform ${open?'rotate-180':''}`}/>
-       </div>
-
-       {open && (
-         <div className="p-4 space-y-4 border-t border-slate-100 animate-in slide-in-from-top-1">
-            <div className="flex gap-2">
-                <div className="flex-1">
-                   <InputField label={isBreak ? "休憩名" : "曲名"}>
-                      <NoZoomInput className="bg-white font-bold" placeholder={isBreak?"休憩":"曲タイトル"} value={item.title} onChange={e => onChange({...item, title:e.target.value})} />
-                   </InputField>
-                </div>
-            </div>
-            
-            {isBreak ? (
-                <InputField label="目安時間"><NoZoomInput className="bg-white" placeholder="例: 15分" value={item.duration} onChange={e => onChange({...item, duration:e.target.value})} /></InputField>
-            ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                      <InputField label="作曲者"><NoZoomInput className="bg-white" placeholder="Artist" value={item.composer} onChange={e => onChange({...item, composer:e.target.value})} /></InputField>
-                      <InputField label="演奏者"><NoZoomInput className="bg-white" placeholder="Performer" value={item.performer||""} onChange={e => onChange({...item, performer:e.target.value})} /></InputField>
-                  </div>
-                  <InputField label="曲解説"><NoZoomTextArea className="bg-white h-24" placeholder="解説..." value={item.description} onChange={e => onChange({...item, description:e.target.value})} /></InputField>
-                  
-                  <div className="flex justify-between items-center pt-2">
-                      <button onClick={() => onChange({...item, isEncore: !item.isEncore})} className={`flex items-center gap-1 px-3 py-1.5 rounded-full border transition-all text-xs font-bold ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-400 grayscale'}`}>
-                         <Star size={14} fill={item.isEncore ? "currentColor" : "none"} /> アンコール
-                      </button>
-                      <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
-                  </div>
-                </>
-            )}
-            {isBreak && (
-                <div className="flex justify-end">
-                   <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
-                </div>
-            )}
-         </div>
-       )}
-    </div>
+    <footer className="py-20 text-center opacity-40 space-y-4">
+      <div className={cn("w-px h-12 mx-auto", liveMode ? "bg-current" : "bg-current")}></div>
+      <h2 className={cn("text-xl font-medium", mincho.className)}>{event.title}</h2>
+      <p className="text-[10px] uppercase tracking-widest">Official Digital Pamphlet</p>
+      <p className="text-[10px]">© {new Date().getFullYear()} All Rights Reserved.</p>
+    </footer>
   );
 }
