@@ -74,6 +74,7 @@ function InputField({ label, children }: { label: string; children: React.ReactN
 }
 
 // --- Sortable Item Wrapper (Handle Only Logic) ---
+// 修正: childrenの型定義と、cloneElement時の型キャストを追加してビルドエラーを回避
 function SortableItem({ id, children }: { id: string; children: React.ReactElement }) {
   const {
     attributes,
@@ -93,10 +94,10 @@ function SortableItem({ id, children }: { id: string; children: React.ReactEleme
     touchAction: 'none'
   };
 
-  // 子供（BlockCard）に dragHandleProps を渡す
   return (
     <div ref={setNodeRef} style={style}>
-       {React.cloneElement(children, { dragHandleProps: { ...listeners, ...attributes } })}
+       {/* TypeScriptエラー回避のため as any を使用 */}
+       {React.cloneElement(children as React.ReactElement<any>, { dragHandleProps: { ...listeners, ...attributes } })}
     </div>
   );
 }
@@ -247,11 +248,7 @@ export default function EventEdit({ params }: Props) {
   }
 
   // --- Break Timer Logic ---
-  // Note: 休憩ブロックを探してタイマーをセットするが、LiveModeではパネルから操作するため
-  // 「リスト内の最初の休憩ブロック」または「現在アクティブな休憩ブロック」を対象にする
   async function startBreak(minutes: number) {
-    // 1. まず現在休憩中なら何もしないか、上書きする（ここでは上書き）
-    // 2. ブロックの中から type="program" の items に type="break" があるか探す
     let targetBlockId = null;
     let targetItemIndex = -1;
 
