@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
 import {
   Calendar,
+  MapPin, // ← ここを追加しました
   Coffee,
   ChevronDown,
   User,
@@ -32,7 +33,7 @@ function safeParseTheme(raw: any) {
   return null;
 }
 
-// デザイン設定（変更なし）
+// デザインは「クラシック・紙」で固定
 function varCss(palette: any) {
   const p = palette ?? {};
   const accent = p.accent ?? "#B48E55"; // 金・茶系
@@ -139,9 +140,9 @@ export default function EventViewer({ params }: Props) {
   const cssVars = useMemo(() => varCss(theme.palette), [theme]);
 
   if (loading) {
-    return ( // 読み込み中も雰囲気を壊さない
+    return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F2E8] text-[#B48E55]">
-        <div className="animate-pulse tracking-widest font-serif uppercase text-xs">Loading...</div>
+        <Loader2 className="animate-spin" size={32} />
       </div>
     );
   }
