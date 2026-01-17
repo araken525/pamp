@@ -23,7 +23,8 @@ import {
   Globe,
   MessageCircle,
   Heart,
-  ExternalLink
+  ExternalLink,
+  Calendar
 } from "lucide-react";
 import { Cinzel, Zen_Old_Mincho, Cormorant_Garamond } from 'next/font/google';
 import { clsx, type ClassValue } from "clsx";
@@ -48,16 +49,14 @@ const supabase = createClient(
 function getThemeColors(palette: any) {
   const accent = palette?.accent ?? "#B48E55"; // Classic Gold
   return {
-    "--bg": "#F9F8F2", // Cream Paper
-    "--text": "#2A2A2A", // Ink Black
+    "--bg": "#F9F8F2",
+    "--text": "#2A2A2A",
     "--accent": accent,
     "--muted": "#888888",
     "--line": "#E5E5E5",
-    
-    // Night Mode (Midnight Blue Velvet)
-    "--live-bg": "#0f172a", // Midnight Blue
-    "--live-text": "#e2e8f0", // Silver Grey
-    "--live-accent": "#fcd34d", // Champagne Gold
+    "--live-bg": "#0f172a",
+    "--live-text": "#e2e8f0",
+    "--live-accent": "#fcd34d",
     "--live-line": "#1e293b",
     "--live-glow": "rgba(252, 211, 77, 0.15)",
   } as React.CSSProperties;
@@ -71,14 +70,9 @@ export default function EventViewer({ params }: Props) {
   const [blocks, setBlocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveMode, setLiveMode] = useState(false);
-  
-  // Footer Links
   const [footerLinks, setFooterLinks] = useState<{survey?: string, donation?: string}>({});
-  
-  // Floating Timer State
   const [activeBreak, setActiveBreak] = useState<{end: string, duration: string} | null>(null);
 
-  // Load Data
   useEffect(() => {
     let channel: any;
     async function init() {
@@ -94,7 +88,6 @@ export default function EventViewer({ params }: Props) {
         const { data: b } = await supabase.from("blocks").select("*").eq("event_id", e.id).order("sort_order", { ascending: true });
         setBlocks(b ?? []);
         
-        // Check for active break
         let foundBreak = null;
         b?.forEach((block: any) => {
            if(block.type === 'program') {
@@ -134,19 +127,21 @@ export default function EventViewer({ params }: Props) {
   return (
     <div 
       className={cn(
-        "min-h-screen transition-colors duration-1000 ease-in-out selection:bg-[var(--accent)]/20",
+        "min-h-screen transition-colors duration-1000 ease-in-out selection:bg-[var(--accent)]/20 overflow-x-hidden touch-pan-y",
         mincho.className,
         liveMode ? "bg-[var(--live-bg)] text-[var(--live-text)]" : "bg-[var(--bg)] text-[var(--text)]"
       )}
       style={cssVars}
     >
-      {/* Paper Texture (Visible in Light Mode) */}
+      <style jsx global>{`
+        body { overflow-x: hidden; touch-action: pan-y; }
+      `}</style>
+
       <div className={cn(
         "fixed inset-0 pointer-events-none z-50 mix-blend-multiply transition-opacity duration-1000",
         liveMode ? "opacity-0" : "opacity-[0.03]"
       )} style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
       
-      {/* Live Mode Controls */}
       <nav className="fixed top-6 right-6 z-50 flex items-center gap-3 mix-blend-difference text-white">
         <button 
           onClick={() => setLiveMode(!liveMode)}
@@ -164,7 +159,6 @@ export default function EventViewer({ params }: Props) {
         </button>
       </nav>
 
-      {/* Floating Timer (Bottom Right) */}
       <AnimatePresence>
         {activeBreak && (
            <motion.div 
@@ -176,7 +170,7 @@ export default function EventViewer({ params }: Props) {
                liveMode ? "bg-white/5 border-[var(--live-accent)]/30 text-[var(--live-accent)]" : "bg-white/40 border-[var(--accent)]/30 text-[var(--accent)]"
              )}
            >
-              <span className="text-[9px] font-bold uppercase tracking-widest flex items-center gap-1"><Coffee size={10}/> Intermission</span>
+              <span className="text-[10px] font-bold tracking-widest flex items-center gap-1"><Coffee size={12}/> 休憩中</span>
               <Countdown target={activeBreak.end} />
            </motion.div>
         )}
@@ -209,9 +203,7 @@ export default function EventViewer({ params }: Props) {
 function LoadingScreen() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[#F9F8F2] z-[9999]">
-      <div className="flex flex-col items-center gap-4">
-        <Loader2 className="animate-spin text-[#B48E55]" size={30} />
-      </div>
+      <Loader2 className="animate-spin text-[#B48E55]" size={30} />
     </div>
   );
 }
@@ -225,7 +217,7 @@ function Hero({ event, liveMode }: any) {
   return (
     <motion.header 
       ref={ref}
-      className="relative h-[85vh] w-full overflow-hidden flex flex-col items-center justify-center text-center px-6 mb-20"
+      className="relative h-[90vh] w-full overflow-hidden flex flex-col items-center justify-center text-center px-6 mb-20"
     >
       <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
         {event.cover_image ? (
@@ -233,7 +225,6 @@ function Hero({ event, liveMode }: any) {
         ) : (
           <div className="w-full h-full bg-stone-200" />
         )}
-        {/* Paper Blend Gradient: Transparent -> Paper Color */}
         <div className={cn(
           "absolute inset-0 bg-gradient-to-b from-black/20 via-transparent",
           liveMode ? "to-[var(--live-bg)]" : "to-[var(--bg)]"
@@ -241,13 +232,12 @@ function Hero({ event, liveMode }: any) {
       </motion.div>
 
       <div className="relative z-10 text-white space-y-6 max-w-3xl pt-20">
-        <div className="inline-block border-y border-white/60 py-1.5 px-6 backdrop-blur-[2px] shadow-sm">
-          <span className={cn("text-xs tracking-[0.3em] uppercase font-bold drop-shadow-md", cinzel.className)}>
+        <div className="inline-block border-y border-white/60 py-2 px-6 backdrop-blur-[2px] shadow-sm mb-4">
+          <span className={cn("text-xs tracking-[0.3em] uppercase font-bold drop-shadow-md block -mt-0.5", cinzel.className)}>
             Digital Pamphlet
           </span>
         </div>
         
-        {/* Strong Drop Shadow for Visibility */}
         <h1 className={cn("text-4xl md:text-6xl font-bold leading-tight drop-shadow-[0_4px_6px_rgba(0,0,0,0.8)]", mincho.className)}>
           {event.title}
         </h1>
@@ -256,7 +246,9 @@ function Hero({ event, liveMode }: any) {
           {event.date && (
             <div className="flex items-center gap-3">
               <span className="w-6 h-px bg-white/80 box-shadow-sm"></span>
-              <span className={cormorant.className}>{new Date(event.date).toLocaleDateString()}</span>
+              <span className={cormorant.className}>
+                 {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </span>
               <span className="w-6 h-px bg-white/80 box-shadow-sm"></span>
             </div>
           )}
@@ -300,22 +292,31 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
           <SectionHeader title="Greeting" subtitle="ご挨拶" liveMode={liveMode} />
           {content.image ? (
              <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
-               {/* Magazine Style Layout */}
-               <div className="shrink-0 w-48 md:w-64 aspect-[3/4] relative p-2 bg-white shadow-sm rotate-1 border border-stone-100">
-                  <img src={content.image} className="w-full h-full object-cover" alt="Speaker" />
+               {/* Mobile Layout: Photo + Name side-by-side */}
+               <div className="w-full md:w-auto flex items-center gap-5 md:block">
+                  <div className={cn(
+                    "w-24 h-24 md:w-64 md:h-auto md:aspect-[3/4] shrink-0 relative p-1 bg-white shadow-sm rotate-1 border border-stone-100 rounded-sm overflow-hidden",
+                    liveMode ? "bg-white/5 border-white/10" : ""
+                  )}>
+                      <img src={content.image} className="w-full h-full object-cover filter contrast-[1.05]" alt="Speaker" />
+                  </div>
+                  <div className="block md:hidden flex-1">
+                      <h3 className="text-lg font-bold tracking-widest mb-1">{content.author}</h3>
+                      <p className={cn("text-[10px] opacity-60 uppercase tracking-widest", cinzel.className)}>{content.role}</p>
+                  </div>
                </div>
+               
                <div className="flex-1 space-y-6 md:pt-4">
-                 <div className="text-center md:text-left">
+                 <div className="hidden md:block text-left">
                    <h3 className="text-xl font-bold tracking-widest">{content.author}</h3>
                    <p className={cn("text-xs opacity-60 uppercase tracking-widest mt-1", cinzel.className)}>{content.role}</p>
                  </div>
-                 <p className="text-sm md:text-base leading-8 text-justify opacity-90 whitespace-pre-wrap font-serif first-letter:text-3xl first-letter:font-bold first-letter:mr-1 first-letter:float-left">
+                 <p className="text-sm md:text-base leading-8 text-justify opacity-90 whitespace-pre-wrap font-serif">
                    {content.text}
                  </p>
                </div>
              </div>
           ) : (
-             // No Image Layout (Letter Style)
              <div className="max-w-xl mx-auto text-center space-y-8 py-8">
                 <p className="text-base md:text-lg leading-9 font-serif whitespace-pre-wrap opacity-90">
                   {content.text}
@@ -356,22 +357,19 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
     case "gallery":
       return (
         <Wrapper>
-          {/* Watermark Background */}
           <div className="relative">
              <div className={cn(
-               "absolute -top-20 left-1/2 -translate-x-1/2 text-[100px] md:text-[150px] font-bold opacity-[0.03] select-none pointer-events-none whitespace-nowrap",
+               "absolute -top-10 left-1/2 -translate-x-1/2 text-[15vw] font-bold opacity-[0.03] select-none pointer-events-none whitespace-nowrap",
                cinzel.className
              )}>
                GALLERY
              </div>
              
-             {/* Header */}
              <div className="text-center mb-8 relative z-10">
                 <h3 className={cn("text-lg font-bold tracking-widest uppercase mb-2", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}>{content.title || "Memories"}</h3>
                 {content.caption && <p className="text-xs opacity-60 font-serif max-w-md mx-auto">{content.caption}</p>}
              </div>
 
-             {/* Grid Layout */}
              <div className="grid grid-cols-2 md:grid-cols-3 gap-1 md:gap-2">
                 {(content.images || []).map((url: string, i: number) => (
                    <div key={i} className="aspect-square relative overflow-hidden group bg-stone-100">
@@ -430,10 +428,9 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
 
   if (item.isEncore && !encoreRevealed) return null;
 
-  // --- Section (Hairline) ---
   if (isSection) {
     return (
-      <div className="py-10 flex items-center justify-center relative z-10">
+      <div className="pt-10 pb-6 flex items-center justify-center relative z-10">
         <div className={cn("h-px w-full absolute top-1/2 left-0 -z-10", liveMode ? "bg-[var(--live-line)]" : "bg-[var(--line)]")}></div>
         <span className={cn(
           "px-6 text-sm font-bold tracking-[0.2em] uppercase font-serif",
@@ -445,7 +442,6 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
     );
   }
 
-  // --- Memo ---
   if (item.type === "memo") {
     return (
       <div className="flex justify-center py-2 opacity-50">
@@ -454,19 +450,16 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
     );
   }
 
-  // --- Break ---
   if (isBreak) {
     return (
       <div className={cn(
-        "py-8 flex flex-col items-center justify-center gap-2 transition-all duration-700 border-y my-4",
-        liveMode 
-          ? (active ? "bg-[var(--live-accent)]/10 border-[var(--live-accent)]/20 text-[var(--live-accent)]" : "border-transparent opacity-40")
-          : (active ? "bg-[var(--accent)]/5 border-[var(--accent)]/20" : "border-transparent opacity-50")
+        "py-8 flex flex-col items-center justify-center gap-2 transition-all duration-700 border-y border-[var(--line)] my-4",
+        active ? "opacity-100 scale-105" : "opacity-60"
       )}>
-        <Coffee size={16} className={active ? "animate-bounce" : ""} />
+        <Coffee size={16} className={active ? "text-[var(--accent)] animate-bounce" : ""} />
         <span className="text-xs font-bold tracking-[0.3em] uppercase">休 憩</span>
         {active && item.timerEnd ? (
-           <div className="text-sm font-mono font-bold animate-pulse">In Progress</div>
+           <div className="text-sm font-mono font-bold text-[var(--accent)] animate-pulse">Running</div>
         ) : (
            <span className={cn("text-sm italic", cormorant.className)}>{item.duration}</span>
         )}
@@ -474,62 +467,55 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
     );
   }
 
-  // --- Song ---
   return (
     <div className="relative group">
-      {/* Live Glow Effect */}
       {active && liveMode && (
          <div className="absolute -inset-4 rounded-xl bg-[var(--live-glow)] blur-xl opacity-50 animate-pulse pointer-events-none"></div>
       )}
       
       <div 
         className={cn(
-           "py-4 px-2 md:px-4 cursor-pointer transition-all duration-700 rounded-lg border-l-2",
+           "py-4 px-3 md:px-6 cursor-pointer transition-colors duration-500 rounded-sm",
            active 
-             ? (liveMode ? "border-[var(--live-accent)] bg-white/5" : "border-[var(--accent)] bg-[var(--accent)]/5")
-             : "border-transparent hover:bg-black/5"
+             ? (liveMode ? "bg-white/5 border-l-2 border-[var(--live-accent)]" : "bg-[var(--accent)]/5 border-l-2 border-[var(--accent)]")
+             : "hover:bg-[var(--text)]/5 border-l-2 border-transparent"
         )}
         onClick={() => item.description && setIsOpen(!isOpen)}
       >
-        {/* Row 1: Title & Composer */}
-        <div className="flex items-baseline justify-between gap-4 mb-2">
-           <h3 className={cn(
-             "text-base md:text-xl font-bold leading-snug font-serif", 
-             active ? (liveMode ? "text-[var(--live-accent)] drop-shadow-[0_0_8px_rgba(252,211,77,0.5)]" : "text-[var(--accent)]") : ""
-           )}>
-             {item.title}
-           </h3>
-           <span className={cn("text-sm opacity-60 italic shrink-0", cormorant.className)}>{item.composer}</span>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-baseline justify-between gap-4">
+             <h3 className={cn(
+               "text-base md:text-lg font-bold leading-snug font-serif", 
+               active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]") : ""
+             )}>
+               {item.title}
+             </h3>
+             <span className={cn("text-sm opacity-60 italic shrink-0", cormorant.className)}>{item.composer}</span>
         </div>
-        
-        {/* Row 2: Performer & Tags */}
-        <div className="flex items-center justify-between">
-           <div className="flex items-center gap-3">
-              {item.performer && (
-                 <span className={cn(
-                   "text-xs font-serif tracking-wide opacity-80",
-                   active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)] font-bold") : ""
-                 )}>
-                   {item.performer}
-                 </span>
-              )}
-              {active && <span className={cn("text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}><Sparkles size={10}/> Playing</span>}
-           </div>
-           {item.isEncore && <span className={cn("text-[9px] px-1.5 py-0.5 border border-current rounded-full opacity-50", cinzel.className)}>Encore</span>}
+          
+          <div className="flex items-center justify-between mt-1">
+             <div className="flex items-center gap-2">
+                {active && <span className={cn("text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}><Sparkles size={8}/> Playing</span>}
+                {item.performer && (
+                   <span className={cn("text-xs opacity-80 font-serif", active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]") : "")}>
+                     {item.performer}
+                   </span>
+                )}
+             </div>
+             {item.isEncore && <span className={cn("text-[9px] px-1.5 py-0.5 border border-[var(--text)]/20 rounded-full opacity-50", cinzel.className)}>Encore</span>}
+          </div>
         </div>
 
-        {/* Accordion: Description */}
-        <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0")}>
+        <div className={cn("grid transition-all duration-300 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-3" : "grid-rows-[0fr] opacity-0")}>
            <div className="overflow-hidden min-h-0">
-              <div className={cn("h-px w-full mb-3 opacity-20", liveMode ? "bg-white" : "bg-black")}></div>
-              <p className="text-sm leading-7 text-justify opacity-80 font-serif">
+              <p className="text-sm leading-7 text-justify opacity-70 font-serif border-t border-[var(--line)] pt-2">
                 {item.description}
               </p>
            </div>
         </div>
         
         {item.description && (
-           <div className="flex justify-center mt-2 opacity-20 group-hover:opacity-50 transition-opacity">
+           <div className="flex justify-center mt-1 opacity-20">
               <ChevronDown size={12} className={cn("transition-transform duration-300", isOpen ? "rotate-180" : "")} />
            </div>
         )}
@@ -556,44 +542,38 @@ function ProfileItem({ p, liveMode }: any) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="flex gap-5 items-start">
-      {/* Photo */}
+    <div className="flex flex-col items-center text-center gap-4">
       <div className={cn(
-        "relative w-20 h-24 md:w-24 md:h-32 rounded-sm overflow-hidden border shrink-0 shadow-sm",
+        "relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border shadow-sm",
         liveMode ? "border-[var(--live-line)] bg-white/5" : "border-stone-200 bg-stone-100"
       )}>
         {p.image ? (
           <img src={p.image} className="w-full h-full object-cover" alt={p.name} />
         ) : (
-          <div className="w-full h-full flex items-center justify-center opacity-20"><User size={24}/></div>
+          <div className="w-full h-full flex items-center justify-center opacity-20"><User size={32}/></div>
         )}
       </div>
       
-      {/* Info */}
-      <div className="flex-1 min-w-0 pt-1">
-        <h3 className="text-lg font-bold font-serif leading-snug">{p.name}</h3>
-        <p className={cn("text-[10px] tracking-[0.2em] uppercase opacity-50 mb-3", cinzel.className)}>{p.role}</p>
+      <div className="space-y-1.5 w-full">
+        <h3 className="text-lg font-bold font-serif">{p.name}</h3>
+        <p className={cn("text-[10px] tracking-[0.2em] uppercase opacity-50", cinzel.className)}>{p.role}</p>
         
-        {/* SNS Links */}
-        <div className="flex gap-3 mb-3 opacity-60">
+        <div className="flex justify-center gap-4 pt-1 opacity-60">
            {p.sns?.twitter && <a href={p.sns.twitter} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity"><Twitter size={14}/></a>}
            {p.sns?.instagram && <a href={p.sns.instagram} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity"><Instagram size={14}/></a>}
            {p.sns?.website && <a href={p.sns.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity"><Globe size={14}/></a>}
         </div>
+      </div>
 
-        {/* Accordion Bio */}
-        <div className="relative">
-          <div className={cn("overflow-hidden transition-all duration-500", isOpen ? "max-h-[1000px]" : "max-h-0")}>
-             <p className="text-xs md:text-sm leading-6 opacity-70 font-serif whitespace-pre-wrap">
-               {p.bio}
-             </p>
-          </div>
-          {p.bio && (
-            <button onClick={() => setIsOpen(!isOpen)} className="text-[10px] uppercase tracking-widest opacity-40 hover:opacity-100 flex items-center gap-1 mt-1">
-               {isOpen ? "Close" : "Profile"} <ChevronDown size={10} className={isOpen ? "rotate-180" : ""}/>
-            </button>
-          )}
+      <div className="relative w-full">
+        <div className={cn("overflow-hidden transition-all duration-500", isOpen ? "max-h-[1000px]" : "max-h-0")}>
+           <p className={cn("text-sm leading-7 text-justify opacity-80 font-serif px-2 pt-2 pb-4 rounded-xl", liveMode ? "bg-white/5" : "bg-[var(--text)]/5")}>
+             {p.bio}
+           </p>
         </div>
+        <button onClick={() => setIsOpen(!isOpen)} className="text-[9px] uppercase tracking-widest opacity-40 hover:opacity-100 flex items-center gap-1 mx-auto mt-2">
+           {isOpen ? "Close" : "Read Profile"} <ChevronDown size={10} className={isOpen ? "rotate-180" : ""}/>
+        </button>
       </div>
     </div>
   );
@@ -629,7 +609,7 @@ function FooterActions({ links, liveMode }: { links: { survey?: string, donation
 function Footer({ event, liveMode }: any) {
   return (
     <footer className="py-20 text-center opacity-40 space-y-4">
-      <div className={cn("w-px h-12 mx-auto", liveMode ? "bg-current" : "bg-current")}></div>
+      <div className="w-px h-12 bg-current mx-auto"></div>
       <h2 className={cn("text-xl font-medium", mincho.className)}>{event.title}</h2>
       <p className="text-[10px] uppercase tracking-widest">Official Digital Pamphlet</p>
       <p className="text-[10px]">© {new Date().getFullYear()} All Rights Reserved.</p>

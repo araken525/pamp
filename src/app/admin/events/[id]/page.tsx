@@ -20,7 +20,7 @@ import {
   Coffee,
   Play,
   Pause,
-  Edit3, // ← これを追加しました！
+  Edit3,
   MonitorPlay,
   Share2,
   Grid,
@@ -45,7 +45,9 @@ import {
   Link as LinkIcon,
   Check,
   Smartphone,
-  GripVertical
+  GripVertical,
+  Calendar,
+  MapPin
 } from "lucide-react";
 
 import {
@@ -216,15 +218,20 @@ export default function EventEdit({ params }: Props) {
     const currentTheme = typeof event.theme === 'string' ? JSON.parse(event.theme) : (event.theme || {});
     const newTheme = { ...currentTheme, footer_links: footerLinks };
 
+    // Update cover, theme, date, and location
     const { error } = await supabase.from("events").update({ 
       cover_image: coverImageDraft,
-      theme: newTheme
+      theme: newTheme,
+      date: event.date,
+      location: event.location
     }).eq("id", id);
 
     if (!error) {
       setEvent((prev: any) => ({ ...prev, cover_image: coverImageDraft, theme: newTheme }));
       setIsEventDirty(false);
       showMsg("設定を保存しました✨");
+    } else {
+        showMsg("保存に失敗しました", true);
     }
     setLoading(false);
   }
@@ -451,27 +458,61 @@ export default function EventEdit({ params }: Props) {
                <Share2 size={20}/> パンフレットを配布する
             </button>
 
-            {/* SETTINGS CARD 1: COVER */}
+            {/* SETTINGS CARD 1: COVER & INFO */}
             <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
                <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
                   <Settings size={18} className="text-slate-400"/>
                   <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
                </div>
-               <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
-               <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
-                  {displayCover ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={displayCover} className="w-full h-full object-cover" alt="" />
-                  ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
-                  )}
-                  <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
-                  <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
-                     {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
-                  </div>
-                  <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                  </label>
+               
+               <div className="space-y-6">
+                 <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
+                    <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
+                        {displayCover ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={displayCover} className="w-full h-full object-cover" alt="" />
+                        ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
+                        )}
+                        <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
+                        <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
+                          {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
+                        </div>
+                        <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+                        </label>
+                    </div>
+                 </div>
+
+                 {/* Date & Location Inputs */}
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                       <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">開催日時</label>
+                       <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                          <Calendar size={18} className="text-slate-400 shrink-0"/>
+                          <NoZoomInput 
+                            type="datetime-local" 
+                            className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
+                            value={event?.date ? new Date(event.date).toISOString().slice(0, 16) : ""}
+                            onChange={(e) => { setEvent({...event, date: e.target.value}); setIsEventDirty(true); }}
+                          />
+                       </div>
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">開催場所</label>
+                       <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                          <MapPin size={18} className="text-slate-400 shrink-0"/>
+                          <NoZoomInput 
+                            className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
+                            placeholder="会場名"
+                            value={event?.location || ""}
+                            onChange={(e) => { setEvent({...event, location: e.target.value}); setIsEventDirty(true); }}
+                          />
+                       </div>
+                    </div>
+                 </div>
                </div>
+
                {isEventDirty && (
                  <div className="flex justify-end pt-4">
                    <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
