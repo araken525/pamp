@@ -537,7 +537,10 @@ function BlockEditor({ block, index, total, onSave, onMove, onDelete, supabaseCl
   };
 
   const typeLabel: Record<string, string> = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", image: "画像" };
-  const TypeIcon = { greeting: MessageSquare, program: Music, profile: User, image: ImageIcon }[block.type] || Edit3;
+  
+  // ★ここを修正しました
+  const iconMap: Record<string, any> = { greeting: MessageSquare, program: Music, profile: User, image: ImageIcon };
+  const TypeIcon = iconMap[block.type] || Edit3;
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm transition-all ${isDirty ? 'ring-2 ring-black border-transparent' : 'border-zinc-200'}`}>
