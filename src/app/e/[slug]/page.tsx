@@ -5,20 +5,11 @@ import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
 import {
   Calendar,
-  MapPin,
   Coffee,
-  Play,
   ChevronDown,
   User,
-  Image as ImageIcon,
-  MessageSquare,
-  Music,
-  Loader2,
-  Clock,
   Sparkles,
   Glasses,
-  Info,
-  Grid,
 } from "lucide-react";
 
 // ▼ Supabaseクライアント
@@ -41,7 +32,7 @@ function safeParseTheme(raw: any) {
   return null;
 }
 
-// デザインは「クラシック・紙」で固定
+// デザイン設定（変更なし）
 function varCss(palette: any) {
   const p = palette ?? {};
   const accent = p.accent ?? "#B48E55"; // 金・茶系
@@ -148,9 +139,9 @@ export default function EventViewer({ params }: Props) {
   const cssVars = useMemo(() => varCss(theme.palette), [theme]);
 
   if (loading) {
-    return (
+    return ( // 読み込み中も雰囲気を壊さない
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F2E8] text-[#B48E55]">
-        <Loader2 className="animate-spin" size={32} />
+        <div className="animate-pulse tracking-widest font-serif uppercase text-xs">Loading...</div>
       </div>
     );
   }
@@ -174,7 +165,7 @@ export default function EventViewer({ params }: Props) {
       <div className="fixed top-4 right-4 z-50">
         <button
           onClick={() => setTheaterMode(!theaterMode)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border transition-all shadow-lg ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border transition-all shadow-lg active:scale-95 ${
             theaterMode 
               ? "bg-white/10 text-white border-white/20" 
               : "bg-black/5 text-[var(--text)] border-[var(--border)]"
@@ -255,7 +246,6 @@ function HeroFixed({ event }: any) {
         </>
       ) : (
         <div className="w-full h-full bg-zinc-100 flex items-center justify-center">
-           {/* 画像がない時の表示: ミニマルなパターン */}
            <div className="text-center opacity-30 p-10">
               <div className="text-4xl font-serif mb-4 tracking-widest">{event.title}</div>
               <div className="w-16 h-[1px] bg-current mx-auto"></div>
@@ -284,6 +274,7 @@ function HeroFixed({ event }: any) {
           )}
           {event.location && (
             <div className="text-xs tracking-wider uppercase opacity-70 mt-1">
+              <MapPin size={12} className="inline mr-1 mb-0.5"/>
               {event.location}
             </div>
           )}
@@ -297,7 +288,7 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
   const type = block.type;
   const content = block.content ?? {};
 
-  // --- Greeting (強化版) ---
+  // --- Greeting ---
   if (type === "greeting") {
     if (!content.text) return null;
     return (
@@ -312,18 +303,15 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
                 </div>
              </div>
            )}
-           
            <div className="flex-1 w-full">
-              {/* 名前と役職がある場合のみ表示 */}
               {(content.author || content.role) && (
                 <div className="mb-4 text-center md:text-left">
                    <div className="text-sm font-bold tracking-widest">{content.author}</div>
                    <div className="text-[10px] opacity-60 uppercase tracking-widest mt-1">{content.role}</div>
                 </div>
               )}
-              
               <div className="h-[1px] w-full bg-[var(--border)] mb-4 opacity-50"/>
-              <p className="text-[15px] leading-8 text-justify whitespace-pre-wrap opacity-90">
+              <p className="text-[15px] leading-8 text-justify whitespace-pre-wrap opacity-90 font-serif">
                 {content.text}
               </p>
               <div className="h-[1px] w-full bg-[var(--border)] mt-4 opacity-50"/>
@@ -333,7 +321,7 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
     );
   }
 
-  // --- Free Topic (新設) ---
+  // --- Free Topic ---
   if (type === "free") {
     if (!content.text && !content.title) return null;
     return (
@@ -348,21 +336,19 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
     );
   }
 
-  // --- Gallery (進化版) ---
+  // --- Gallery ---
   if (type === "gallery") {
-    const images = content.images ?? (content.url ? [content.url] : []); // 旧データ互換
+    const images = content.images ?? (content.url ? [content.url] : []);
     if (!images.length) return null;
 
     return (
       <div className="py-4">
         {content.title && <SectionTitle title={content.title} subtitle="Gallery" />}
-        
         <div className="grid grid-cols-1 gap-6">
           {images.map((url: string, idx: number) => (
-             <figure key={idx} className="relative overflow-hidden rounded-sm shadow-md border border-[var(--border)] bg-white p-2">
+             <figure key={idx} className="relative overflow-hidden rounded-sm shadow-md border border-[var(--border)] bg-white p-2 transform transition-transform hover:scale-[1.01]">
                {/* eslint-disable-next-line @next/next/no-img-element */}
-               <img src={url} alt="" className="w-full h-auto object-cover filter sepia-[0.2]" />
-               {/* 最後の画像の時だけキャプション表示（簡易実装） */}
+               <img src={url} alt="" className="w-full h-auto object-cover filter sepia-[0.1]" />
                {idx === images.length - 1 && content.caption && (
                  <figcaption className="text-[var(--text)] p-3 text-xs text-center tracking-wider italic opacity-70">
                    {content.caption}
@@ -436,10 +422,33 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
   return null;
 }
 
-// 休憩タイマー機能付きアイテム
+// アイテム描画（セクション・メモ・休憩・曲）
 function ProgramItemFixed({ item, encoreRevealed }: any) {
   const [open, setOpen] = useState(false);
   
+  // --- Section (見出し) ---
+  if (item.type === "section") {
+    return (
+      <div className="pt-10 pb-6 flex flex-col items-center justify-center animate-enter">
+        <h3 className="text-lg md:text-xl font-bold text-[var(--accent)] border-b border-[var(--accent)]/30 px-8 pb-2 tracking-[0.2em] uppercase font-serif text-center">
+          {item.title}
+        </h3>
+      </div>
+    );
+  }
+
+  // --- Memo (メモ) ---
+  if (item.type === "memo") {
+    return (
+      <div className="py-3 text-center animate-enter">
+        <span className="inline-block text-xs md:text-sm font-sans tracking-wider border border-[var(--border)] px-4 py-1.5 rounded-full bg-[var(--card)]/50 opacity-80">
+          {item.title}
+        </span>
+      </div>
+    );
+  }
+  
+  // Encore Check
   if (item.isEncore && !encoreRevealed) return null;
   
   const isBreak = item.type === "break";
@@ -457,7 +466,7 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
         const diff = end - now;
 
         if (diff <= 0) {
-           setTimeLeft(null); // 時間切れ
+           setTimeLeft(null); 
            clearInterval(interval);
         } else {
            const m = Math.floor(diff / 60000);
@@ -472,19 +481,22 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
 
     return (
       <div className="flex flex-col items-center">
-         <div className="text-xs font-bold text-[var(--accent)] animate-pulse">再開まで</div>
+         <div className="text-[10px] font-bold text-[var(--accent)] animate-pulse mb-1">再開まで</div>
          <div className="text-xl font-bold font-mono tracking-widest">{timeLeft}</div>
       </div>
     );
   };
 
+  // --- Break (休憩) ---
   if (isBreak) {
     return (
-      <div className="py-10 flex items-center justify-center gap-4 opacity-70">
+      <div className={`py-10 flex items-center justify-center gap-4 opacity-70 transition-all ${active ? 'scale-110 opacity-100' : ''}`}>
         <div className="h-[1px] w-12 bg-[var(--text)] opacity-30" />
-        <div className="flex flex-col items-center gap-2 min-w-[100px]">
+        <div className="flex flex-col items-center gap-2 min-w-[120px]">
           <Coffee size={18} />
-          <span className="text-xs font-bold tracking-[0.2em] uppercase">Intermission</span>
+          <span className="text-xs font-bold tracking-[0.2em] uppercase">
+             {item.title || "Intermission"}
+          </span>
           {item.timerEnd && new Date(item.timerEnd).getTime() > Date.now() ? (
              <TimerDisplay />
           ) : (
@@ -496,27 +508,28 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
     );
   }
 
+  // --- Song (曲) ---
   return (
     <div className={`group transition-all duration-500`}>
       <div 
         onClick={() => setOpen(!open)}
-        className="cursor-pointer py-4 px-2 hover:bg-[var(--accent)]/5 rounded-sm transition-colors"
+        className={`cursor-pointer py-4 px-2 hover:bg-[var(--accent)]/5 rounded-sm transition-colors ${active ? "bg-[var(--accent)]/5" : ""}`}
       >
         <div className="flex items-baseline gap-4">
-          <div className={`w-1.5 h-1.5 rounded-full shrink-0 transform translate-y-[-2px] 
-            ${active ? "bg-[var(--accent)] animate-pulse shadow-[0_0_8px_var(--accent)]" : "bg-[var(--accent)]/40"}`} 
+          <div className={`w-1.5 h-1.5 rounded-full shrink-0 transform translate-y-[-2px] transition-all duration-500
+            ${active ? "bg-[var(--accent)] animate-pulse shadow-[0_0_8px_var(--accent)] scale-150" : "bg-[var(--accent)]/40"}`} 
           />
           
           <div className="flex-1">
              <div className="flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
-               <h3 className={`text-lg font-medium leading-snug 
+               <h3 className={`text-lg font-medium leading-snug transition-colors duration-500
                  ${active ? "text-[var(--accent)] font-bold" : "text-[var(--text)]"}
                `}>
                  {item.title}
                </h3>
                
                {active && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--accent)] animate-pulse">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--accent)] animate-pulse uppercase tracking-wider">
                     <Sparkles size={10} /> Now Playing
                   </span>
                )}
@@ -532,13 +545,13 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
              )}
           </div>
 
-          <ChevronDown size={16} className={`opacity-30 transition-transform ${open ? "rotate-180" : ""}`} />
+          <ChevronDown size={16} className={`opacity-30 transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
         </div>
 
-        <div className={`grid transition-all duration-300 ${open ? "grid-rows-[1fr] mt-4 opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+        <div className={`grid transition-all duration-300 ease-in-out ${open ? "grid-rows-[1fr] mt-4 opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
           <div className="overflow-hidden">
              <div className="pl-6 border-l border-[var(--border)] ml-2">
-               <p className="text-sm leading-7 text-justify opacity-80 whitespace-pre-wrap">
+               <p className="text-sm leading-7 text-justify opacity-80 whitespace-pre-wrap font-serif">
                  {item.description || "解説はありません。"}
                </p>
              </div>
