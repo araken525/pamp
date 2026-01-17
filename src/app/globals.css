@@ -24,3 +24,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Pamp Theater Mode: ノイズ抑制 */
+[data-theater="1"] img,
+[data-theater="1"] iframe,
+[data-theater="1"] video {
+  display: none !important;
+}
+
+[data-theater="1"] a {
+  display: none !important;
+}
