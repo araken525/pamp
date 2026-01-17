@@ -18,7 +18,6 @@ import {
   Coffee,
   Play,
   Pause,
-  Zap,
   Lock,
   Unlock,
   Edit3,
@@ -32,9 +31,27 @@ import {
   Type,
   List,
   GripVertical,
-  Settings,
-  AlertCircle
+  Star
 } from "lucide-react";
+
+// --- dnd-kit imports ---
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,20 +63,38 @@ type Tab = "edit" | "live";
 
 // --- Utility Components ---
 
-function ToggleSwitch({ checked, onChange, label, activeColor = "bg-green-500" }: { checked: boolean; onChange: () => void; label?: string; activeColor?: string }) {
-  return (
-    <button onClick={(e) => { e.stopPropagation(); onChange(); }} className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none ${checked ? activeColor : 'bg-slate-200'}`}>
-      <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-7' : 'translate-x-1'}`} />
-      {label && <span className="sr-only">{label}</span>}
-    </button>
-  );
-}
-
 function InputField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="w-full">
       <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// --- Sortable Item Wrapper ---
+function SortableItem({ id, children }: { id: string; children: React.ReactNode }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 999 : 'auto',
+    position: 'relative' as const,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+       {/* ハンドルは子コンポーネント側で listeners を付ける */}
+       {children}
     </div>
   );
 }
@@ -79,9 +114,11 @@ export default function EventEdit({ params }: Props) {
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // Drag & Drop State
-  const dragBlockItem = useRef<number | null>(null);
-  const dragOverBlockItem = useRef<number | null>(null);
+  // DnD Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), // 5px動かしたらドラッグ開始（誤タップ防止）
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   // Cover Image
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -120,37 +157,23 @@ export default function EventEdit({ params }: Props) {
     setBlocks(b ?? []);
   }
 
-  // --- Drag & Drop Handlers (Blocks) ---
-  const handleSortStart = (index: number) => { dragBlockItem.current = index; };
-  const handleSortEnter = (index: number) => { dragOverBlockItem.current = index; };
-  const handleSortEnd = async () => {
-    const fromIdx = dragBlockItem.current;
-    const toIdx = dragOverBlockItem.current;
-    if (fromIdx === null || toIdx === null || fromIdx === toIdx) {
-      dragBlockItem.current = null;
-      dragOverBlockItem.current = null;
-      return;
+  // --- DnD Handlers (Blocks) ---
+  async function handleDragEnd(event: any) {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setBlocks((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        
+        // DB Update (Non-blocking)
+        const updates = newItems.map((b, i) => ({ id: b.id, sort_order: (i + 1) * 10 }));
+        Promise.all(updates.map(u => supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id)));
+        
+        return newItems;
+      });
     }
-
-    const newBlocks = [...blocks];
-    const [movedItem] = newBlocks.splice(fromIdx, 1);
-    newBlocks.splice(toIdx, 0, movedItem);
-    
-    // Optimistic UI Update
-    setBlocks(newBlocks);
-    
-    // DB Update (Re-assign sort_order for all affected)
-    // 簡易的に全体を更新（本番環境では軽量化が必要だが、数個〜数十個ならこれでOK）
-    const updates = newBlocks.map((b, i) => ({ id: b.id, sort_order: (i + 1) * 10 }));
-    
-    dragBlockItem.current = null;
-    dragOverBlockItem.current = null;
-
-    for (const u of updates) {
-      await supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id);
-    }
-  };
-
+  }
 
   // --- Actions ---
   async function handleCoverUpload(e: any) {
@@ -189,9 +212,19 @@ export default function EventEdit({ params }: Props) {
   }
 
   async function toggleActiveItem(blockId: string, itemIndex: number) {
-    const target = blocks.find((b) => b.id === blockId);
-    if (!target?.content?.items) return;
-    const items = target.content.items;
+    // Crash Fix: Guard Clauses
+    if (!blocks || blocks.length === 0) return;
+    
+    const targetBlockIndex = blocks.findIndex((b) => b.id === blockId);
+    if (targetBlockIndex === -1) return;
+    const targetBlock = blocks[targetBlockIndex];
+
+    if (!targetBlock?.content?.items || !targetBlock.content.items[itemIndex]) {
+        console.error("Item not found");
+        return;
+    }
+
+    const items = [...targetBlock.content.items];
     const targetId = `${blockId}-${itemIndex}`;
     
     // Toggle Logic
@@ -200,43 +233,60 @@ export default function EventEdit({ params }: Props) {
     
     setPlayingItemId(nextState ? targetId : null);
 
-    const newItems = items.map((it: any, idx: number) => ({ 
-      ...it, 
-      active: (idx === itemIndex && nextState) 
-    }));
+    // Update active status in items array
+    items.forEach((it, idx) => {
+        if (idx === itemIndex) {
+            it.active = nextState;
+        } else {
+            it.active = false; // Turn off others in same block
+        }
+    });
     
-    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b)));
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
+    // Optimistic Update
+    const newBlocks = [...blocks];
+    newBlocks[targetBlockIndex] = { ...targetBlock, content: { ...targetBlock.content, items } };
+    setBlocks(newBlocks);
+
+    await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
   }
 
   async function startBreakTimer(blockId: string, itemIndex: number, minutesStr: string) {
     const min = parseInt(minutesStr);
     if (isNaN(min) || min <= 0) return showMsg("分数を入力してください", true);
 
-    const target = blocks.find((b) => b.id === blockId);
+    const targetIndex = blocks.findIndex(b => b.id === blockId);
+    if (targetIndex === -1) return;
+    const target = blocks[targetIndex];
     if (!target?.content?.items) return;
     
     const end = new Date(Date.now() + min * 60000).toISOString();
     const newItems = [...target.content.items];
     newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: end, duration: `${min}分`, active: true };
     
-    // 休憩中はPlayingItemとしてもマークする
     setPlayingItemId(`${blockId}-${itemIndex}`);
 
-    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b)));
+    const newBlocks = [...blocks];
+    newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
+    setBlocks(newBlocks);
+
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
     showMsg(`${min}分のタイマー開始⏳`);
   }
 
   async function stopBreakTimer(blockId: string, itemIndex: number) {
-    const target = blocks.find((b) => b.id === blockId);
-    if (!target?.content?.items) return;
+    const targetIndex = blocks.findIndex(b => b.id === blockId);
+    if (targetIndex === -1) return;
+    const target = blocks[targetIndex];
 
     const newItems = [...target.content.items];
     newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: null, active: false };
     
     setPlayingItemId(null);
-    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b)));
+
+    const newBlocks = [...blocks];
+    newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
+    setBlocks(newBlocks);
+
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
     showMsg("休憩終了");
   }
@@ -285,13 +335,16 @@ export default function EventEdit({ params }: Props) {
     }
   }
 
-  // Live Mode Helpers
+  // Live Mode Helpers (Safe Access)
   const getActiveItemInfo = () => {
       if (!playingItemId) return null;
-      const [bId, iIdx] = playingItemId.split("-");
+      const [bId, iIdxStr] = playingItemId.split("-");
+      const iIdx = parseInt(iIdxStr);
       const block = blocks.find(b => b.id === bId);
-      const item = block?.content?.items?.[parseInt(iIdx)];
-      return { block, item, index: parseInt(iIdx) };
+      if (!block || !block.content?.items) return null;
+      const item = block.content.items[iIdx];
+      if (!item) return null;
+      return { block, item, index: iIdx };
   };
 
   const activeInfo = getActiveItemInfo();
@@ -340,7 +393,7 @@ export default function EventEdit({ params }: Props) {
         {activeTab === "edit" && (
           <div className="animate-in fade-in p-4 space-y-8">
             
-            {/* HERO AREA (New Design) */}
+            {/* HERO AREA */}
             <div className="pt-2 pb-4">
                <h2 className="text-2xl font-extrabold text-slate-900 leading-tight">{event.title}</h2>
                <div className="flex items-center gap-2 mt-2">
@@ -375,30 +428,33 @@ export default function EventEdit({ params }: Props) {
                 )}
             </section>
 
-            {/* BLOCKS LIST (Drag & Drop) */}
+            {/* BLOCKS LIST (Dnd Kit Implementation) */}
             <div className="space-y-4">
-                {blocks.map((b, i) => (
-                  <div 
-                    key={b.id}
-                    draggable
-                    onDragStart={() => handleSortStart(i)}
-                    onDragEnter={() => handleSortEnter(i)}
-                    onDragEnd={handleSortEnd}
-                    onDragOver={(e) => e.preventDefault()}
-                    className="transition-transform"
+               <DndContext 
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext 
+                    items={blocks.map(b => b.id)}
+                    strategy={verticalListSortingStrategy}
                   >
-                    <BlockCard 
-                      block={b} 
-                      index={i} 
-                      total={blocks.length} 
-                      isExpanded={expandedBlockId === b.id}
-                      onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
-                      onSave={saveBlockContent} 
-                      onDelete={deleteBlock} 
-                      supabaseClient={supabase} 
-                    />
-                  </div>
-                ))}
+                    {blocks.map((b, i) => (
+                      <SortableItem key={b.id} id={b.id}>
+                        <BlockCard 
+                          block={b} 
+                          index={i} 
+                          total={blocks.length} 
+                          isExpanded={expandedBlockId === b.id}
+                          onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
+                          onSave={saveBlockContent} 
+                          onDelete={deleteBlock} 
+                          supabaseClient={supabase} 
+                        />
+                      </SortableItem>
+                    ))}
+                  </SortableContext>
+                </DndContext>
             </div>
 
             {blocks.length === 0 && (
@@ -411,35 +467,32 @@ export default function EventEdit({ params }: Props) {
           </div>
         )}
 
-        {/* LIVE TAB (Cockpit Mode) */}
+        {/* LIVE TAB */}
         {activeTab === "live" && (
           <div className="animate-in fade-in flex flex-col min-h-[80vh]">
             
-            {/* 1. ENCORE STATUS BAR (Sticky Top) */}
-            <div className={`sticky top-0 z-30 px-6 py-4 flex items-center justify-between shadow-sm transition-colors duration-500 ${encoreRevealed ? 'bg-green-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+            {/* ENCORE STATUS BAR */}
+            <div className={`sticky top-0 z-30 px-6 py-4 flex items-center justify-between shadow-sm transition-colors duration-500 ${encoreRevealed ? 'bg-pink-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
                <div className="flex items-center gap-3">
                  {encoreRevealed ? <Unlock size={20}/> : <Lock size={20}/>}
                  <span className="font-bold text-sm tracking-wider">{encoreRevealed ? "アンコール公開中" : "アンコール非公開"}</span>
                </div>
-               <ToggleSwitch 
-                  checked={encoreRevealed} 
-                  onChange={toggleEncore} 
-                  activeColor="bg-white/30"
-               />
+               <button onClick={toggleEncore} className="bg-white/20 px-4 py-1.5 rounded-full text-xs font-bold active:scale-95 transition-transform">
+                  切り替え
+               </button>
             </div>
 
             <div className="p-4 space-y-6 flex-1 bg-slate-100">
               
-              {/* 2. NOW PLAYING / BREAK (Cockpit Center) */}
+              {/* NOW PLAYING / BREAK */}
               <div className="bg-white rounded-[2rem] p-6 shadow-xl border border-slate-200">
                 <h3 className="text-xs font-bold text-slate-400 mb-4 flex items-center gap-2 uppercase tracking-widest">
-                  {activeInfo?.item.type === "break" ? <Coffee size={14}/> : <MonitorPlay size={14}/>} Current Status
+                  {activeInfo?.item?.type === "break" ? <Coffee size={14}/> : <MonitorPlay size={14}/>} Current Status
                 </h3>
                 
-                {activeInfo ? (
+                {activeInfo && activeInfo.item ? (
                    <div className="text-center space-y-4">
                       {activeInfo.item.type === "break" ? (
-                        /* Break Mode UI */
                         <div className="py-4 animate-in zoom-in-95">
                           <h2 className="text-2xl font-bold text-slate-600 mb-2">{activeInfo.item.title}中</h2>
                           <div className="text-6xl font-black text-slate-800 tabular-nums tracking-tighter my-4">
@@ -455,7 +508,6 @@ export default function EventEdit({ params }: Props) {
                           <button onClick={() => stopBreakTimer(activeInfo.block.id, activeInfo.index)} className="bg-slate-200 text-slate-600 px-6 py-3 rounded-full font-bold text-sm active:scale-95">休憩を終了する</button>
                         </div>
                       ) : (
-                        /* Song Mode UI */
                         <div className="py-2 animate-in slide-in-from-bottom-2">
                            <div className="inline-block px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold mb-2">Now Playing</div>
                            <h2 className="text-2xl font-bold text-slate-900 leading-tight">{activeInfo.item.title}</h2>
@@ -474,7 +526,7 @@ export default function EventEdit({ params }: Props) {
                 )}
               </div>
 
-              {/* 3. TIMELINE LIST */}
+              {/* TIMELINE LIST */}
               <div className="space-y-3">
                  <h3 className="px-2 text-xs font-bold text-slate-400 uppercase tracking-widest">Timeline</h3>
                  {blocks.filter(b => b.type === "program").map(block => (
@@ -506,7 +558,7 @@ export default function EventEdit({ params }: Props) {
                                      </div>
                                    )}
                                 </div>
-                                {item.isEncore && <span className="text-[10px] font-bold bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full">Enc</span>}
+                                {item.isEncore && <span className="text-[10px] font-bold bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full flex items-center gap-1"><Star size={10} fill="currentColor"/> Encore</span>}
                              </div>
                           );
                        })}
@@ -519,7 +571,7 @@ export default function EventEdit({ params }: Props) {
         )}
       </main>
 
-      {/* FAB & MENU (Fixed Position above nav) */}
+      {/* FAB & MENU */}
       {activeTab === "edit" && (
         <>
           <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
@@ -577,9 +629,8 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Drag State for Items
-  const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null);
+  // dnd-kit用リスナー
+  const { listeners } = useSortable({ id: block.id });
 
   // Sync content
   useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
@@ -592,24 +643,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
     try { await onSave(block.id, content); setIsDirty(false); } catch { alert("エラー"); } finally { setSaving(false); }
   };
 
-  // Program Items DnD Handlers
-  const handleItemSort = () => {
-    const items = [...(content.items || [])];
-    const from = dragItem.current;
-    const to = dragOverItem.current;
-    if (from === null || to === null || from === to) {
-        dragItem.current = null;
-        dragOverItem.current = null;
-        return;
-    }
-    const [moved] = items.splice(from, 1);
-    items.splice(to, 0, moved);
-    handleChange({ ...content, items });
-    dragItem.current = null;
-    dragOverItem.current = null;
-  };
-
-  // Upload Logic (Keep Unchanged)
+  // Upload Logic
   const handleUpload = async (e: any, target: 'single' | 'gallery' | 'profile', index?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -644,8 +678,10 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
       {/* HEADER */}
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {/* Drag Handle */}
-           <div className="text-slate-300 cursor-grab active:cursor-grabbing hover:text-slate-500" onPointerDown={e => e.stopPropagation()}><GripVertical size={20}/></div>
+           {/* dnd-kit Handle */}
+           <div className="text-slate-300 cursor-grab active:cursor-grabbing hover:text-slate-500 p-1" {...listeners} onClick={e => e.stopPropagation()}>
+             <GripVertical size={20}/>
+           </div>
            
            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${badgeColors[block.type] || 'bg-slate-100'}`}>
              <TypeIcon size={20} />
@@ -738,49 +774,46 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                         {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-6 text-slate-300"/>}
                         <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer transition-colors"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'profile', i)} /></label>
                       </div>
-                      <div className="flex-1 space-y-2">
+                      <div className="flex-1 space-y-2 pr-8"> {/* Right padding for delete button */}
                         <input className="w-full bg-white px-3 py-2 rounded-lg text-base font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder:text-slate-300" placeholder="名前" value={p.name} onChange={e => {const np=[...content.people]; np[i].name=e.target.value; handleChange({...content, people:np})}} />
                         <input className="w-full bg-white px-3 py-2 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder:text-slate-300" placeholder="役割" value={p.role} onChange={e => {const np=[...content.people]; np[i].role=e.target.value; handleChange({...content, people:np})}} />
                         <textarea className="w-full bg-white px-3 py-2 rounded-lg text-sm h-20 outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none placeholder:text-slate-300" placeholder="紹介文" value={p.bio} onChange={e => {const np=[...content.people]; np[i].bio=e.target.value; handleChange({...content, people:np})}} />
                       </div>
-                      <button onClick={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})} className="absolute top-2 right-2 p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
+                      <button onClick={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})} className="absolute top-3 right-3 p-2 bg-slate-100 rounded-full text-slate-300 hover:bg-red-50 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
                     </div>
                   ))}
                   <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:""}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-colors">+ 出演者を追加</button>
                 </div>
               )}
 
-              {/* === Program (Drag & Drop Items) === */}
+              {/* === Program (Simplified DnD) === */}
               {block.type === "program" && (
                   <div className="space-y-4">
+                    {/* Note: Nested DnD is complex, using simplified array swapping for items inside block for now to keep code stable */}
                     {(content.items || []).map((item: any, i: number) => {
                       return (
-                        <div 
-                           key={i} 
-                           draggable
-                           onDragStart={() => dragItem.current = i}
-                           onDragEnter={() => dragOverItem.current = i}
-                           onDragEnd={handleItemSort}
-                           onDragOver={(e) => e.preventDefault()}
-                           className="group"
-                        >
+                        <div key={i} className="group relative">
                             {/* Section */}
                             {item.type === "section" && (
                               <div className="flex gap-2 items-center mt-6 mb-2">
-                                <div className="text-slate-300 cursor-grab active:cursor-grabbing"><GripVertical size={16}/></div>
                                 <div className="flex-1 border-b border-indigo-200">
                                     <input className="w-full bg-transparent py-2 text-indigo-700 font-bold text-sm outline-none placeholder:text-indigo-300" placeholder="セクション見出し (例: 第1部)" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
                                 </div>
-                                <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                                <div className="flex gap-1">
+                                  <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-2 text-slate-300 hover:text-indigo-500">↑</button>
+                                  <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                                </div>
                               </div>
                             )}
 
                             {/* Memo */}
                             {item.type === "memo" && (
                               <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2">
-                                 <div className="text-yellow-300 cursor-grab active:cursor-grabbing self-center"><GripVertical size={16}/></div>
                                  <textarea className="flex-1 bg-transparent text-sm text-yellow-900 outline-none resize-none placeholder:text-yellow-900/40" rows={2} placeholder="フリーメモ (MCの内容など)" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
-                                 <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1.5 text-yellow-400 hover:text-red-500 self-start"><X size={14}/></button>
+                                 <div className="flex flex-col">
+                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-yellow-300 hover:text-yellow-600">↑</button>
+                                   <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
+                                 </div>
                               </div>
                             )}
 
@@ -788,7 +821,12 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                             {(item.type === "song" || item.type === "break") && (
                                 <div className={`p-4 bg-slate-50 rounded-[1.5rem] relative space-y-3 border border-slate-100 ${item.isEncore ? 'ring-2 ring-pink-100 bg-pink-50/30' : ''}`}>
                                     <div className="flex gap-3 items-start">
-                                        <div className="text-slate-300 cursor-grab active:cursor-grabbing mt-3"><GripVertical size={20}/></div>
+                                        {/* Simple Up/Down for Items to prevent DnD conflicts */}
+                                        <div className="flex flex-col mt-2">
+                                           <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-slate-600">↑</button>
+                                           <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-slate-600">↓</button>
+                                        </div>
+
                                         <div className="flex-1 space-y-3">
                                             {/* Row 1: Title */}
                                             <div className="flex gap-2">
@@ -812,7 +850,13 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                                                     </div>
                                                     <div className="col-span-1">
                                                         <div className="h-full flex items-end pb-1.5 justify-end">
-                                                            <ToggleSwitch label="アンコール" checked={item.isEncore} activeColor="bg-pink-500" onChange={() => { const ni=[...content.items]; ni[i].isEncore=!ni[i].isEncore; handleChange({...content, items:ni}); }} />
+                                                            <button 
+                                                              onClick={() => { const ni=[...content.items]; ni[i].isEncore=!ni[i].isEncore; handleChange({...content, items:ni}); }}
+                                                              className={`flex flex-col items-center justify-center w-full py-2 rounded-xl border transition-all ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-300 grayscale'}`}
+                                                            >
+                                                               <Star size={20} fill={item.isEncore ? "currentColor" : "none"} />
+                                                               <span className="text-[10px] font-bold mt-1">アンコール</span>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>
