@@ -5,12 +5,13 @@ import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
 import {
   Calendar,
-  MapPin, // ← ここを追加しました
+  MapPin,
   Coffee,
   ChevronDown,
   User,
   Sparkles,
   Glasses,
+  Loader2, // ← これを追加しました！
 } from "lucide-react";
 
 // ▼ Supabaseクライアント
