@@ -1,6 +1,4 @@
-
 "use client";
-// Admin page: manual theme presets (no AI). Select palette/background/font/layout and save to events.theme.
 
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -11,13 +9,11 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
-  Palette,
   User,
   Music,
   MessageSquare,
   GripVertical,
   Loader2,
-  Layout as LayoutIcon,
   Image as ImageIcon,
   Eye,
   Camera,
@@ -28,143 +24,49 @@ import {
   Zap,
   Lock,
   Unlock,
+  Edit3,
+  MonitorPlay,
+  X,
+  ChevronRight,
 } from "lucide-react";
 
+// ▼ Supabaseクライアント
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 type Props = { params: Promise<{ id: string }> };
-type Tab = "content" | "design" | "live";
-
-function safeParseTheme(raw: any) {
-  if (!raw) return null;
-  if (typeof raw === "object") return raw;
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-
-function paletteFromPreset(p: "classic" | "night" | "modern") {
-  if (p === "night") {
-    return {
-      bg: "#0E1117",
-      card: "#1A1E24",
-      text: "#E2E8F0",
-      muted: "#A3A9B3",
-      accent: "#B8860B",
-      border: "#333946",
-    };
-  }
-  if (p === "modern") {
-    return {
-      bg: "#0B1220",
-      card: "#0F1A30",
-      text: "#E6EEF9",
-      muted: "#A7B4C6",
-      accent: "#5EEAD4",
-      border: "#22314A",
-    };
-  }
-  // classic
-  return {
-    bg: "#F8F0E3",
-    card: "#FFFFFF",
-    text: "#1F2937",
-    muted: "#6B7280",
-    accent: "#0F766E",
-    border: "#E7DED1",
-  };
-}
-
-function bgPatternFromPreset(p: "none" | "paper" | "grain") {
-  if (p === "none") return "";
-  // Lightweight CSS-only patterns (no external assets)
-  if (p === "paper") {
-    return `
-      background-image:
-        radial-gradient(circle at 20% 10%, rgba(0,0,0,0.03) 0 2px, transparent 3px),
-        radial-gradient(circle at 80% 30%, rgba(0,0,0,0.025) 0 2px, transparent 3px),
-        radial-gradient(circle at 35% 80%, rgba(0,0,0,0.02) 0 2px, transparent 3px);
-      background-size: 220px 220px;
-      background-attachment: fixed;
-    `;
-  }
-  // grain
-  return `
-    background-image:
-      radial-gradient(circle at 10% 20%, rgba(0,0,0,0.035) 0 1px, transparent 2px),
-      radial-gradient(circle at 70% 60%, rgba(0,0,0,0.03) 0 1px, transparent 2px),
-      radial-gradient(circle at 40% 90%, rgba(0,0,0,0.025) 0 1px, transparent 2px);
-    background-size: 120px 120px;
-    background-attachment: fixed;
-  `;
-}
-
-function typographyFromPreset(p: "sans" | "serif" | "rounded") {
-  if (p === "serif") return { body: "serif", heading: "serif" };
-  if (p === "rounded") return { body: "rounded", heading: "rounded" };
-  return { body: "sans", heading: "sans" };
-}
-
-function buildTheme({ palettePreset, bgPreset, fontPreset, heroVariant, cardVariant, programVariant }: {
-  palettePreset: "classic" | "night" | "modern";
-  bgPreset: "none" | "paper" | "grain";
-  fontPreset: "sans" | "serif" | "rounded";
-  heroVariant: "poster" | "simple";
-  cardVariant: "glass" | "plain";
-  programVariant: "timeline" | "list";
-}) {
-  return {
-    palette: paletteFromPreset(palettePreset),
-    typography: typographyFromPreset(fontPreset),
-    variants: { hero: heroVariant, card: cardVariant, program: programVariant },
-    // Viewer reads these (it already supports background_pattern + custom_css)
-    background_pattern: "",
-    custom_css: bgPatternFromPreset(bgPreset),
-  };
-}
+type Tab = "edit" | "live"; // デザインタブは削除
 
 export default function EventEdit({ params }: Props) {
   const { id } = use(params);
 
+  // --- State ---
   const [event, setEvent] = useState<any>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>("content");
+  const [activeTab, setActiveTab] = useState<Tab>("edit");
 
   const [msg, setMsg] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Cover image
+  // Cover Image (Designタブから移動)
   const [uploadingCover, setUploadingCover] = useState(false);
   const [coverImageDraft, setCoverImageDraft] = useState<string | null>(null);
   const [isCoverDirty, setIsCoverDirty] = useState(false);
 
-  // Live
+  // Live Mode
   const [encoreRevealed, setEncoreRevealed] = useState(false);
 
-
-  // Theme (manual)
-  const [themeDraft, setThemeDraft] = useState<any>(null);
-  const [palettePreset, setPalettePreset] = useState<"classic" | "night" | "modern">("classic");
-  const [bgPreset, setBgPreset] = useState<"none" | "paper" | "grain">("paper");
-  const [fontPreset, setFontPreset] = useState<"sans" | "serif" | "rounded">("sans");
-  const [heroVariant, setHeroVariant] = useState<"poster" | "simple">("poster");
-  const [cardVariant, setCardVariant] = useState<"glass" | "plain">("glass");
-  const [programVariant, setProgramVariant] = useState<"timeline" | "list">("timeline");
+  // UI State
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
   // Drag refs
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
+  // --- Init ---
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,38 +85,18 @@ export default function EventEdit({ params }: Props) {
       return;
     }
 
+    // Load Event
     const { data: e, error: e1 } = await supabase.from("events").select("*").eq("id", id).single();
     if (e1) {
       showMsg(e1.message, true);
       return;
     }
-
     setEvent(e);
     setCoverImageDraft(e.cover_image ?? null);
     setIsCoverDirty(false);
     setEncoreRevealed(e.encore_revealed ?? false);
 
-    const t = safeParseTheme(e.theme) ?? null;
-    setThemeDraft(t);
-
-    // initialize selects from existing theme when possible
-    const v = t?.variants ?? {};
-    setHeroVariant((v.hero as any) ?? "poster");
-    setCardVariant((v.card as any) ?? "glass");
-    setProgramVariant((v.program as any) ?? "timeline");
-
-    const body = t?.typography?.body;
-    setFontPreset(body === "serif" ? "serif" : body === "rounded" ? "rounded" : "sans");
-
-    // best-effort palette preset detection
-    const bg = t?.palette?.bg;
-    if (bg === "#0E1117") setPalettePreset("night");
-    else if (bg === "#0B1220") setPalettePreset("modern");
-    else setPalettePreset("classic");
-
-    // bg preset is stored in custom_css; we can't reliably detect, default to paper
-    setBgPreset("paper");
-
+    // Load Blocks
     const { data: b, error: e2 } = await supabase
       .from("blocks")
       .select("*")
@@ -228,70 +110,7 @@ export default function EventEdit({ params }: Props) {
     setBlocks(b ?? []);
   }
 
-  async function toggleEncore() {
-    const next = !encoreRevealed;
-    setEncoreRevealed(next);
-
-    const { error } = await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
-    if (error) {
-      showMsg(`更新失敗: ${error.message}`, true);
-      setEncoreRevealed(!next);
-    } else {
-      showMsg(next ? "アンコールを公開しました" : "アンコールを非公開にしました");
-    }
-  }
-
-  async function toggleActiveItem(blockId: string, itemIndex: number) {
-    const target = blocks.find((b) => b.id === blockId);
-    if (!target?.content?.items) return;
-
-    const items = target.content.items;
-    const isCurrentlyActive = items[itemIndex]?.active === true;
-
-    const newItems = items.map((it: any, idx: number) => ({
-      ...it,
-      active: idx === itemIndex ? !isCurrentlyActive : false,
-    }));
-
-    // optimistic
-    setBlocks((prev) =>
-      prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b))
-    );
-
-    const { error } = await supabase
-      .from("blocks")
-      .update({ content: { ...target.content, items: newItems } })
-      .eq("id", blockId);
-
-    if (error) {
-      showMsg("操作に失敗しました", true);
-      load();
-    }
-  }
-
-
-  async function saveTheme() {
-    const themeToSave = buildTheme({
-      palettePreset,
-      bgPreset,
-      fontPreset,
-      heroVariant,
-      cardVariant,
-      programVariant,
-    });
-
-    setLoading(true);
-    const { error } = await supabase.from("events").update({ theme: themeToSave }).eq("id", id);
-    if (error) {
-      showMsg(error.message, true);
-    } else {
-      setEvent((prev: any) => ({ ...prev, theme: themeToSave }));
-      setThemeDraft(themeToSave);
-      showMsg("デザインを保存しました（Viewerに反映されます）");
-    }
-    setLoading(false);
-  }
-
+  // --- Actions: Cover Image ---
   async function handleCoverUpload(e: any) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -330,11 +149,44 @@ export default function EventEdit({ params }: Props) {
     setLoading(false);
   }
 
-  function cancelCoverChange() {
-    setCoverImageDraft(event?.cover_image ?? null);
-    setIsCoverDirty(false);
+  // --- Actions: Live Mode ---
+  async function toggleEncore() {
+    const next = !encoreRevealed;
+    setEncoreRevealed(next);
+    const { error } = await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
+    if (error) {
+      showMsg("エラーが発生しました", true);
+      setEncoreRevealed(!next);
+    } else {
+      showMsg(next ? "アンコールを公開しました" : "アンコールを非公開にしました");
+    }
   }
 
+  async function toggleActiveItem(blockId: string, itemIndex: number) {
+    const target = blocks.find((b) => b.id === blockId);
+    if (!target?.content?.items) return;
+
+    const items = target.content.items;
+    const isCurrentlyActive = items[itemIndex]?.active === true;
+    const newItems = items.map((it: any, idx: number) => ({
+      ...it,
+      active: idx === itemIndex ? !isCurrentlyActive : false,
+    }));
+
+    // optimistic update
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b))
+    );
+
+    const { error } = await supabase
+      .from("blocks")
+      .update({ content: { ...target.content, items: newItems } })
+      .eq("id", blockId);
+      
+    if (error) load(); // revert on error
+  }
+
+  // --- Actions: Blocks ---
   function nextSortOrder() {
     const max = blocks.reduce((m, b) => Math.max(m, b.sort_order ?? 0), 0);
     return max + 10;
@@ -350,6 +202,7 @@ export default function EventEdit({ params }: Props) {
   }
 
   async function addBlock(type: string) {
+    setIsAddMenuOpen(false); // Close menu
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
 
@@ -365,7 +218,7 @@ export default function EventEdit({ params }: Props) {
       showMsg(error.message, true);
     } else {
       await load();
-      setActiveTab("content");
+      // Scroll to bottom logic could be added here
     }
   }
 
@@ -376,47 +229,11 @@ export default function EventEdit({ params }: Props) {
   }
 
   async function deleteBlock(blockId: string) {
-    if (!confirm("削除しますか？")) return;
-
+    if (!confirm("本当に削除しますか？")) return;
     const { error } = await supabase.from("blocks").delete().eq("id", blockId);
     if (error) showMsg(error.message, true);
     else setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
-
-  // Drag reorder (UI)
-  const handleDragStart = (_e: any, position: number) => {
-    dragItem.current = position;
-  };
-
-  const handleDragEnter = (_e: any, position: number) => {
-    dragOverItem.current = position;
-    const dragIndex = dragItem.current;
-    if (dragIndex === null || dragIndex === position) return;
-
-    const newBlocks = [...blocks];
-    const dragged = newBlocks[dragIndex];
-    newBlocks.splice(dragIndex, 1);
-    newBlocks.splice(position, 0, dragged);
-
-    dragItem.current = position;
-    setBlocks(newBlocks);
-  };
-
-  const handleDragEnd = async () => {
-    dragItem.current = null;
-    dragOverItem.current = null;
-
-    const updates = blocks.map((b, index) => ({ id: b.id, sort_order: (index + 1) * 10 }));
-    try {
-      await Promise.all(
-        updates.map((u) => supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id))
-      );
-      showMsg("並び順を保存しました");
-    } catch {
-      showMsg("並び順の保存に失敗しました", true);
-      load();
-    }
-  };
 
   async function moveBlock(blockId: string, dir: "up" | "down") {
     const idx = blocks.findIndex((b) => b.id === blockId);
@@ -436,10 +253,12 @@ export default function EventEdit({ params }: Props) {
     ]);
   }
 
+  // --- Render ---
+
   if (!event) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="animate-spin text-zinc-300" />
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+        <Loader2 className="animate-spin text-zinc-400" />
       </div>
     );
   }
@@ -447,883 +266,426 @@ export default function EventEdit({ params }: Props) {
   const displayCover = coverImageDraft ?? event.cover_image;
 
   return (
-    <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 pb-24">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b shadow-sm">
-        <div className="px-6 py-4 flex justify-between items-center">
-          <div>
-            <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Event Edit</div>
-            <h1 className="text-lg font-bold truncate max-w-[240px] md:max-w-md">{event.title}</h1>
-          </div>
-
-          <div className="flex gap-3 items-center">
-            {msg && (
-              <span
-                className={`text-xs font-bold px-3 py-1 rounded-full ${
-                  isError ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600"
-                }`}
-              >
+    <div className="min-h-screen bg-zinc-100 font-sans text-zinc-900 pb-32 md:pb-24">
+      {/* HEADER (Floating) */}
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-zinc-200 px-4 py-3 flex justify-between items-center shadow-sm">
+        <h1 className="text-sm font-bold truncate max-w-[200px]">{event.title}</h1>
+        <div className="flex gap-2 items-center">
+           {msg && (
+              <span className={`text-[10px] font-bold px-2 py-1 rounded-full animate-pulse ${isError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                 {msg}
               </span>
-            )}
-
-            <Link
-              href={`/e/${event.slug}`}
-              target="_blank"
-              className="flex items-center gap-2 px-4 py-2 bg-black text-white text-xs font-bold rounded-full hover:bg-zinc-800 transition-all shadow-lg"
-            >
-              プレビュー <Eye size={14} />
-            </Link>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex px-6 border-t border-zinc-100 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab("content")}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === "content"
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-zinc-400 hover:text-zinc-600"
-            }`}
-          >
-            <LayoutIcon size={16} /> 編集
-          </button>
-
-          <button
-            onClick={() => setActiveTab("design")}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === "design"
-                ? "border-purple-500 text-purple-600"
-                : "border-transparent text-zinc-400 hover:text-zinc-600"
-            }`}
-          >
-            <Palette size={16} /> デザイン
-          </button>
-
-          <button
-            onClick={() => setActiveTab("live")}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === "live"
-                ? "border-yellow-500 text-yellow-600"
-                : "border-transparent text-zinc-400 hover:text-zinc-600"
-            }`}
-          >
-            <Zap size={16} /> 本番モード
-          </button>
+           )}
+           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-black text-white rounded-full shadow-lg active:scale-95 transition-transform">
+             <Eye size={18} />
+           </Link>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-6 py-8">
-        {/* TAB: content */}
-        {activeTab === "content" && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <AddButton icon={MessageSquare} label="挨拶" onClick={() => addBlock("greeting")} />
-              <AddButton icon={ImageIcon} label="画像" onClick={() => addBlock("image")} />
-              <AddButton icon={Music} label="曲目" onClick={() => addBlock("program")} />
-              <AddButton icon={User} label="人物" onClick={() => addBlock("profile")} />
-            </div>
+      {/* MAIN CONTENT */}
+      <main className="max-w-2xl mx-auto p-4 space-y-6">
+        
+        {/* --- TAB: EDIT --- */}
+        {activeTab === "edit" && (
+          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
+            
+            {/* 1. Cover Image Editor (Moved here!) */}
+            <section className="bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm">
+              <div className="relative aspect-[3/2] w-full bg-zinc-100 group">
+                {displayCover ? (
+                   // eslint-disable-next-line @next/next/no-img-element
+                   <img src={displayCover} className="w-full h-full object-cover" alt="Cover" />
+                ) : (
+                   <div className="flex flex-col items-center justify-center h-full text-zinc-300">
+                     <ImageIcon size={48} />
+                     <span className="text-xs font-bold mt-2">カバー画像なし</span>
+                   </div>
+                )}
+                
+                {/* Upload Overlay */}
+                <label className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center cursor-pointer transition-all">
+                   <div className="bg-white/90 backdrop-blur text-black px-4 py-2 rounded-full text-xs font-bold shadow-lg flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                     {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>}
+                     <span>変更する</span>
+                   </div>
+                   <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+                </label>
+              </div>
 
-            <div className="space-y-6">
+              {/* Save Button for Cover */}
+              {isCoverDirty && (
+                <div className="p-3 bg-zinc-50 border-t flex justify-between items-center animate-in slide-in-from-top-2">
+                  <span className="text-xs font-bold text-zinc-500">変更されています</span>
+                  <button 
+                    onClick={saveCoverImage} 
+                    disabled={loading}
+                    className="bg-black text-white px-4 py-2 rounded-full text-xs font-bold shadow-md"
+                  >
+                    {loading ? "保存中..." : "画像を保存"}
+                  </button>
+                </div>
+              )}
+            </section>
+
+            {/* 2. Block List */}
+            <div className="space-y-4">
               {blocks.length === 0 && (
-                <div className="text-center py-12 border-2 border-dashed border-zinc-200 rounded-2xl text-zinc-400">
-                  <p className="text-sm">コンテンツを追加してください</p>
+                <div className="text-center py-10 border-2 border-dashed border-zinc-300 rounded-2xl text-zinc-400">
+                  <p className="text-sm font-bold mb-1">コンテンツがありません</p>
+                  <p className="text-xs">右下のボタンから追加してください</p>
                 </div>
               )}
 
               {blocks.map((b, i) => (
-                <div
-                  key={b.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, i)}
-                  onDragEnter={(e) => handleDragEnter(e, i)}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={(e) => e.preventDefault()}
-                  className="transition-transform duration-200"
-                >
-                  <BlockEditor
-                    block={b}
-                    index={i}
-                    total={blocks.length}
+                 <BlockEditor 
+                    key={b.id} 
+                    block={b} 
+                    index={i} 
+                    total={blocks.length} 
                     onSave={saveBlockContent}
                     onMove={moveBlock}
                     onDelete={deleteBlock}
                     supabaseClient={supabase}
-                  />
-                </div>
+                 />
               ))}
             </div>
+            
+            {/* Spacer for FAB */}
+            <div className="h-20" />
           </div>
         )}
 
-        {/* TAB: design */}
-        {activeTab === "design" && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* Cover */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 text-lg font-bold">
-                <ImageIcon className="text-pink-500" size={20} />
-                <h2>カバー画像設定</h2>
+        {/* --- TAB: LIVE --- */}
+        {activeTab === "live" && (
+          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
+            
+            {/* Encore Control */}
+            <section className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-sm text-center">
+              <div className="inline-block p-3 bg-yellow-100 text-yellow-700 rounded-full mb-4">
+                <Zap size={24} fill="currentColor" />
               </div>
-
-              <div className="p-1 bg-white border rounded-2xl shadow-sm">
-                <div className="relative w-full aspect-video rounded-xl bg-zinc-100 overflow-hidden group">
-                  {displayCover ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={displayCover} alt="Cover" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-300">
-                      <ImageIcon size={48} className="opacity-20" />
-                    </div>
-                  )}
-
-                  <label className="absolute inset-0 bg-black/0 group-hover:bg-black/30 flex items-center justify-center transition-all cursor-pointer">
-                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-2 text-white font-bold bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm">
-                      {uploadingCover ? <Loader2 className="animate-spin" /> : <Camera size={20} />}
-                      <span>変更する</span>
-                    </div>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                  </label>
-                </div>
-              </div>
-
-              {isCoverDirty && (
-                <div className="flex justify-end gap-2">
-                  <button onClick={cancelCoverChange} className="px-4 py-2 text-xs font-bold text-zinc-500 bg-zinc-100 rounded-full">
-                    元に戻す
-                  </button>
-                  <button
-                    onClick={saveCoverImage}
-                    disabled={loading}
-                    className="px-4 py-2 text-xs font-bold text-white bg-black rounded-full shadow-lg"
-                  >
-                    {loading ? "保存中..." : "変更を保存"}
-                  </button>
-                </div>
-              )}
+              <h2 className="text-xl font-bold mb-1">アンコール管理</h2>
+              <p className="text-xs text-zinc-500 mb-6">本番のアンコール時に公開してください</p>
+              
+              <button
+                onClick={toggleEncore}
+                className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+                  encoreRevealed ? "bg-green-500 text-white" : "bg-zinc-100 text-zinc-400"
+                }`}
+              >
+                {encoreRevealed ? <Unlock /> : <Lock />}
+                {encoreRevealed ? "公開中" : "非公開"}
+              </button>
             </section>
 
-            <hr className="border-dashed border-zinc-200" />
+            {/* Program Control */}
+            <div className="space-y-4">
+               <div className="flex items-center gap-2 px-2">
+                 <Music className="text-blue-500" size={18}/>
+                 <h2 className="font-bold text-zinc-700">演奏コントロール</h2>
+               </div>
 
-            {/* Theme (manual) */}
-            <section className="space-y-6">
-              <div className="flex items-center gap-2 text-lg font-bold">
-                <Palette className="text-purple-600" size={20} />
-                <h2>デザイン（選ぶだけ）</h2>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Controls */}
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="text-xs font-bold text-zinc-500">配色</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        onClick={() => setPalettePreset("classic")}
-                        className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "classic" ? "border-black" : "border-zinc-200"}`}
-                      >
-                        クラシック
-                      </button>
-                      <button
-                        onClick={() => setPalettePreset("night")}
-                        className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "night" ? "border-black" : "border-zinc-200"}`}
-                      >
-                        ナイト
-                      </button>
-                      <button
-                        onClick={() => setPalettePreset("modern")}
-                        className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "modern" ? "border-black" : "border-zinc-200"}`}
-                      >
-                        モダン
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <div className="text-xs font-bold text-zinc-500">背景</div>
-                      <select
-                        value={bgPreset}
-                        onChange={(e) => setBgPreset(e.target.value as any)}
-                        className="h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold"
-                      >
-                        <option value="none">なし</option>
-                        <option value="paper">紙っぽい</option>
-                        <option value="grain">粒感</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="text-xs font-bold text-zinc-500">フォント</div>
-                      <select
-                        value={fontPreset}
-                        onChange={(e) => setFontPreset(e.target.value as any)}
-                        className="h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold"
-                      >
-                        <option value="sans">ゴシック</option>
-                        <option value="serif">明朝</option>
-                        <option value="rounded">丸ゴ</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-xs font-bold text-zinc-500">レイアウト</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <select
-                        value={heroVariant}
-                        onChange={(e) => setHeroVariant(e.target.value as any)}
-                        className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
-                      >
-                        <option value="poster">表紙：ポスター</option>
-                        <option value="simple">表紙：シンプル</option>
-                      </select>
-                      <select
-                        value={cardVariant}
-                        onChange={(e) => setCardVariant(e.target.value as any)}
-                        className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
-                      >
-                        <option value="glass">カード：ガラス</option>
-                        <option value="plain">カード：プレーン</option>
-                      </select>
-                      <select
-                        value={programVariant}
-                        onChange={(e) => setProgramVariant(e.target.value as any)}
-                        className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
-                      >
-                        <option value="timeline">曲目：タイムライン</option>
-                        <option value="list">曲目：リスト</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={saveTheme}
-                    disabled={loading}
-                    className="w-full h-12 rounded-xl bg-black text-white font-bold shadow-lg disabled:opacity-60"
-                  >
-                    {loading ? "保存中..." : "このデザインを保存"}
-                  </button>
-
-                  <p className="text-xs text-zinc-400">
-                    ※ AIは使いません。配色/背景/フォント/レイアウトを選んで保存するだけです。
-                  </p>
-                </div>
-
-                {/* Preview */}
-                <div className="relative aspect-[3/4] rounded-xl overflow-hidden border shadow-inner">
-                  {(() => {
-  const t = buildTheme({
-    palettePreset,
-    bgPreset,
-    fontPreset,
-    heroVariant,
-    cardVariant,
-    programVariant,
-  });
-
-  const fontFamily =
-    t.typography?.body === "serif"
-      ? '"Times New Roman", "Noto Serif JP", "Hiragino Mincho ProN", serif'
-      : t.typography?.body === "rounded"
-      ? '"Zen Maru Gothic", "Hiragino Maru Gothic Pro", system-ui'
-      : '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif';
-
-  const isGlass = t.variants?.card === "glass";
-
-  return (
-    <div
-      className="theme-root w-full h-full p-5"
-      style={{
-        backgroundColor: t.palette.bg,
-        color: t.palette.text,
-        fontFamily,
-      }}
-    >
-      {/* custom_css is CSS declarations, so we scope it to .theme-root */}
-      {t.custom_css ? <style>{`.theme-root{${t.custom_css}}`}</style> : null}
-
-      <div className="w-full h-full rounded-lg overflow-hidden" style={{ border: `1px solid ${t.palette.border}` }}>
-        {/* HERO SAMPLE */}
-        {t.variants.hero === "poster" ? (
-          <div className="relative h-40">
-            <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(0,0,0,0.35), rgba(0,0,0,0.75))",
-              }}
-            />
-            <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), transparent 55%)",
-              }}
-            />
-            <div className="relative h-full p-4 flex flex-col justify-end">
-              <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-white/80">プレビュー</div>
-              <div className="mt-1 text-lg font-extrabold leading-tight text-white">{event.title}</div>
-              <div className="mt-1 text-[11px] text-white/75">2026/02/02 • ミューザ川崎</div>
+               {blocks.filter(b => b.type === "program").map(block => (
+                 <div key={block.id} className="bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm">
+                   <div className="bg-zinc-50 border-b px-4 py-2 text-xs font-bold text-zinc-400">PROGRAM LIST</div>
+                   {block.content.items?.map((item: any, i: number) => {
+                      const isActive = item.active === true;
+                      const isBreak = item.type === "break";
+                      return (
+                        <div key={i} className={`flex items-center gap-4 p-4 border-b last:border-0 ${isActive ? 'bg-blue-50' : ''}`}>
+                          {!isBreak ? (
+                            <button 
+                              onClick={() => toggleActiveItem(block.id, i)}
+                              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-zinc-100 text-zinc-400'}`}
+                            >
+                              {isActive ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1"/>}
+                            </button>
+                          ) : (
+                            <div className="w-12 h-12 flex items-center justify-center text-zinc-300"><Coffee /></div>
+                          )}
+                          
+                          <div className="flex-1 min-w-0">
+                             <div className={`font-bold truncate ${isActive ? 'text-blue-700' : 'text-zinc-700'} ${isBreak ? 'opacity-50' : ''}`}>
+                               {item.title}
+                             </div>
+                             {!isBreak && <div className="text-xs text-zinc-400 truncate">{item.composer}</div>}
+                          </div>
+                          
+                          {isActive && (
+                            <div className="px-2 py-1 bg-blue-500 text-white text-[10px] font-bold rounded animate-pulse">
+                              NOW
+                            </div>
+                          )}
+                        </div>
+                      )
+                   })}
+                 </div>
+               ))}
             </div>
-          </div>
-        ) : (
-          <div className="h-40 p-5 flex flex-col items-center justify-center text-center" style={{ backgroundColor: t.palette.bg }}>
-            <div className="text-[10px] font-bold tracking-[0.25em] uppercase opacity-70">プレビュー</div>
-            <div className="mt-2 text-lg font-extrabold leading-tight">{event.title}</div>
-            <div className="mt-2 text-[11px] opacity-70">2026/02/02 • ミューザ川崎</div>
-            <div className="mt-3 w-10 h-[3px] rounded-full" style={{ backgroundColor: t.palette.accent }} />
+            
+            {/* Spacer */}
+            <div className="h-20" />
           </div>
         )}
 
-        {/* CONTENT SAMPLE */}
-        <div className="p-4 space-y-3">
-          <div className="text-[11px] font-bold opacity-70">
-            表紙：{t.variants.hero === "poster" ? "ポスター" : "シンプル"} / カード：{t.variants.card === "glass" ? "ガラス" : "プレーン"} / 曲目：{t.variants.program === "timeline" ? "タイムライン" : "リスト"}
-          </div>
+      </main>
 
-          {/* Sample Greeting Card */}
-          <div
-            className="rounded-xl p-4"
-            style={
-              isGlass
-                ? {
-                    backgroundColor: "color-mix(in srgb, white 70%, transparent)",
-                    border: `1px solid color-mix(in srgb, ${t.palette.border} 70%, transparent)`,
-                    backdropFilter: "blur(14px)",
-                    WebkitBackdropFilter: "blur(14px)",
-                  }
-                : {
-                    backgroundColor: t.palette.card,
-                    border: `1px solid ${t.palette.border}`,
-                  }
-            }
-          >
-            <div className="text-xs font-bold" style={{ color: t.palette.accent }}>
-              ご挨拶（サンプル）
-            </div>
-            <div className="mt-1 text-sm opacity-85 leading-relaxed">
-              本日はご来場ありがとうございます。どうぞ最後までごゆっくりお楽しみください。
-            </div>
-          </div>
-
-          {/* Sample Program */}
-          {t.variants.program === "timeline" ? (
-            <div className="relative pl-3">
-              <div className="absolute left-[10px] top-1 bottom-1 w-[2px] rounded-full" style={{ backgroundColor: t.palette.border }} />
-              {[
-                { title: "1. 作品A", composer: "作曲者A" },
-                { title: "2. 作品B", composer: "作曲者B" },
-                { title: "休憩", composer: "15分" },
-              ].map((it, idx) => (
-                <div key={idx} className="flex gap-3 items-start py-2">
-                  <div
-                    className="w-4 h-4 rounded-full mt-1 shrink-0"
-                    style={{ backgroundColor: idx === 1 ? t.palette.accent : t.palette.bg, border: `2px solid ${idx === 1 ? t.palette.accent : t.palette.border}` }}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold truncate">{it.title}</div>
-                    <div className="text-[11px] opacity-70 truncate">{it.composer}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div
-              className="rounded-xl overflow-hidden"
-              style={{
-                backgroundColor: isGlass ? "color-mix(in srgb, white 70%, transparent)" : t.palette.card,
-                border: `1px solid ${t.palette.border}`,
-              }}
-            >
-              {[
-                { title: "1. 作品A", composer: "作曲者A" },
-                { title: "2. 作品B", composer: "作曲者B" },
-                { title: "休憩", composer: "15分" },
-              ].map((it, idx) => (
-                <div key={idx} className="p-3" style={{ borderTop: idx === 0 ? "none" : `1px solid ${t.palette.border}` }}>
-                  <div className="text-sm font-bold">{it.title}</div>
-                  <div className="text-[11px] opacity-70">{it.composer}</div>
-                </div>
-              ))}
+      {/* --- FLOATING ACTION BUTTON (Only in Edit) --- */}
+      {activeTab === "edit" && (
+        <>
+          {/* Menu Overlay */}
+          {isAddMenuOpen && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end justify-end p-6" onClick={() => setIsAddMenuOpen(false)}>
+              <div className="flex flex-col gap-3 mb-20 animate-in slide-in-from-bottom-5 duration-200">
+                <AddMenuBtn label="挨拶を追加" icon={MessageSquare} color="bg-orange-500" onClick={() => addBlock("greeting")} />
+                <AddMenuBtn label="画像を追加" icon={ImageIcon} color="bg-pink-500" onClick={() => addBlock("image")} />
+                <AddMenuBtn label="プロフィールを追加" icon={User} color="bg-green-500" onClick={() => addBlock("profile")} />
+                <AddMenuBtn label="プログラムを追加" icon={Music} color="bg-blue-500" onClick={() => addBlock("program")} />
+              </div>
             </div>
           )}
+          
+          {/* Main FAB */}
+          <button 
+            onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
+            className={`fixed bottom-24 right-6 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all active:scale-90 ${isAddMenuOpen ? 'bg-zinc-800 rotate-45' : 'bg-black hover:bg-zinc-800'}`}
+          >
+            <Plus size={28} />
+          </button>
+        </>
+      )}
 
-          <div className="pt-1 text-[10px] opacity-60">※保存するとViewer（/e/[slug]）に反映されます</div>
-        </div>
-      </div>
-    </div>
-  );
-})()}
-                </div>
-              </div>
-            </section>
-          </div>
-        )}
+      {/* --- BOTTOM NAVIGATION --- */}
+      <nav className="fixed bottom-0 inset-x-0 z-50 bg-white border-t border-zinc-200 px-6 py-2 flex justify-around pb-safe">
+        <NavBtn 
+          active={activeTab === "edit"} 
+          onClick={() => setActiveTab("edit")} 
+          icon={Edit3} 
+          label="編集" 
+        />
+        <NavBtn 
+          active={activeTab === "live"} 
+          onClick={() => setActiveTab("live")} 
+          icon={MonitorPlay} 
+          label="本番" 
+        />
+      </nav>
 
-        {/* TAB: live */}
-        {activeTab === "live" && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* Encore */}
-            <section className="p-6 rounded-3xl bg-gradient-to-br from-yellow-50 to-orange-50 border border-yellow-100 shadow-sm text-center space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold uppercase tracking-widest">
-                <Zap size={14} fill="currentColor" /> Stage Control
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-zinc-800">アンコール操作</h2>
-                <p className="text-sm text-zinc-500">本番のアンコール時に使用してください。</p>
-              </div>
-
-              <div className="p-6 bg-white rounded-2xl border border-yellow-100 shadow-sm">
-                <button
-                  onClick={toggleEncore}
-                  className={[
-                    "w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all shadow-lg active:scale-95",
-                    encoreRevealed
-                      ? "bg-green-500 text-white shadow-green-200"
-                      : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200",
-                  ].join(" ")}
-                >
-                  {encoreRevealed ? <Unlock /> : <Lock />}
-                  {encoreRevealed ? "現在公開されています" : "アンコールを公開する"}
-                </button>
-              </div>
-            </section>
-
-            <hr className="border-dashed border-zinc-200" />
-
-            {/* Program control */}
-            <section className="space-y-4">
-              <div className="flex items-center gap-2 text-lg font-bold">
-                <Music className="text-blue-500" size={20} />
-                <h2>演奏コントロール</h2>
-              </div>
-
-              <div className="space-y-4">
-                {blocks
-                  .filter((b) => b.type === "program")
-                  .map((block) => (
-                    <div key={block.id} className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-                      <div className="bg-zinc-50 px-4 py-2 text-xs font-bold text-zinc-500 border-b uppercase">
-                        Program List
-                      </div>
-
-                      <div>
-                        {block.content.items?.map((item: any, i: number) => {
-                          const isBreak = item.type === "break";
-                          const isActive = item.active === true;
-
-                          return (
-                            <div
-                              key={i}
-                              className={`flex items-center gap-4 p-4 border-b last:border-0 transition-colors ${
-                                isActive ? "bg-blue-50" : ""
-                              }`}
-                            >
-                              {!isBreak ? (
-                                <button
-                                  onClick={() => toggleActiveItem(block.id, i)}
-                                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                                    isActive
-                                      ? "bg-blue-500 text-white shadow-md scale-105"
-                                      : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
-                                  }`}
-                                >
-                                  {isActive ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
-                                </button>
-                              ) : (
-                                <div className="w-12 h-12 rounded-full bg-zinc-50 flex items-center justify-center text-zinc-300">
-                                  <Coffee size={20} />
-                                </div>
-                              )}
-
-                              <div className="flex-1">
-                                <div className={`font-bold text-lg ${isActive ? "text-blue-900" : "text-zinc-700"} ${isBreak ? "text-zinc-400" : ""}`}>
-                                  {item.title}
-                                </div>
-                                {!isBreak && item.composer && (
-                                  <div className="text-xs text-zinc-400">{item.composer}</div>
-                                )}
-                              </div>
-
-                              {isActive && (
-                                <div className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full animate-pulse">
-                                  NOW PLAYING
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </section>
-          </div>
-        )}
-      </main>
     </div>
   );
 }
 
-function AddButton({ icon: Icon, label, onClick }: any) {
+// --- SUB COMPONENTS ---
+
+function NavBtn({ active, onClick, icon: Icon, label }: any) {
   return (
-    <button
-      onClick={onClick}
-      className="flex flex-col items-center gap-2 p-4 rounded-xl border border-zinc-200 bg-white hover:border-blue-400 hover:shadow-md transition-all active:scale-95"
-    >
-      <div className="p-2.5 rounded-full bg-zinc-50 text-zinc-600">
-        <Icon size={20} />
-      </div>
-      <span className="text-xs font-bold text-zinc-700">{label}</span>
+    <button onClick={onClick} className={`flex flex-col items-center gap-1 p-2 w-20 rounded-xl transition-colors ${active ? 'text-black' : 'text-zinc-300 hover:text-zinc-500'}`}>
+      <Icon size={24} strokeWidth={active ? 2.5 : 2} />
+      <span className="text-[10px] font-bold">{label}</span>
     </button>
   );
 }
 
+function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }} className="flex items-center gap-3 bg-white p-3 pr-6 rounded-full shadow-lg active:scale-95 transition-transform">
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${color}`}>
+        <Icon size={16} />
+      </div>
+      <span className="text-sm font-bold text-zinc-700">{label}</span>
+    </button>
+  );
+}
+
+// ブロック編集コンポーネント
 function BlockEditor({ block, index, total, onSave, onMove, onDelete, supabaseClient }: any) {
   const [content, setContent] = useState(block.content ?? {});
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    setContent(block.content ?? {});
-    setIsDirty(false);
-  }, [block.id]);
-
-  const type = block.type;
-
-  const handleChange = (newContent: any) => {
-    setContent(newContent);
-    setIsDirty(true);
-  };
+  useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id]);
+  const handleChange = (nc: any) => { setContent(nc); setIsDirty(true); };
 
   const handleSave = async () => {
     setSaving(true);
-    try {
-      await onSave(block.id, content);
-      setIsDirty(false);
-    } catch {
-      alert("保存失敗");
-    } finally {
-      setSaving(false);
-    }
+    try { await onSave(block.id, content); setIsDirty(false); } 
+    catch { alert("エラー"); } 
+    finally { setSaving(false); }
   };
 
-  const toggleActive = (targetIndex: number) => {
-    if (!content.items) return;
-    const isAlready = content.items[targetIndex]?.active === true;
-    const newItems = content.items.map((it: any, idx: number) => ({
-      ...it,
-      active: idx === targetIndex ? !isAlready : false,
-    }));
-    const newContent = { ...content, items: newItems };
-    setContent(newContent);
-    onSave(block.id, newContent);
-  };
-
-  const handleImageUpload = async (e: any, target: "profile" | "block", indexOrKey?: number) => {
+  const handleImageUpload = async (e: any, keyOrIndex: any, isProfile = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setUploading(true);
     try {
       const ext = file.name.split(".").pop();
-      const name = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const path = `uploads/${name}`;
-
+      const path = `uploads/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
       const { error } = await supabaseClient.storage.from("pamp-images").upload(path, file);
       if (error) throw error;
-
       const { data } = supabaseClient.storage.from("pamp-images").getPublicUrl(path);
 
-      if (target === "profile" && typeof indexOrKey === "number") {
-        const np = [...(content.people ?? [])];
-        np[indexOrKey] = { ...np[indexOrKey], image: data.publicUrl };
+      if (isProfile) {
+        const np = [...content.people];
+        np[keyOrIndex].image = data.publicUrl;
         handleChange({ ...content, people: np });
       } else {
         handleChange({ ...content, url: data.publicUrl });
       }
-    } catch {
-      alert("Upload Error");
-    } finally {
-      setUploading(false);
-    }
+    } catch { alert("Upload failed"); } 
+    finally { setUploading(false); }
   };
 
+  const typeLabel: Record<string, string> = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", image: "画像" };
+  const TypeIcon = { greeting: MessageSquare, program: Music, profile: User, image: ImageIcon }[block.type] || Edit3;
+
   return (
-    <div className={`group relative rounded-2xl border bg-white shadow-sm transition-all ${isDirty ? "ring-2 ring-blue-500 border-blue-500" : "border-zinc-200"}`}>
-      {/* header */}
-      <div className="flex items-center justify-between border-b px-4 py-3 bg-zinc-50/50 rounded-t-2xl cursor-move active:cursor-grabbing">
-        <div className="flex items-center gap-3 text-zinc-400 group-hover:text-zinc-600">
-          <GripVertical size={20} />
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-500">
-            {type === "greeting" && <MessageSquare size={14} />}
-            {type === "program" && <Music size={14} />}
-            {type === "profile" && <User size={14} />}
-            {type === "image" && <ImageIcon size={14} />}
-            {type === "greeting" ? "ご挨拶" : type === "program" ? "曲目リスト" : type === "profile" ? "プロフィール" : "画像"}
-          </div>
+    <div className={`bg-white rounded-2xl border shadow-sm transition-all ${isDirty ? 'ring-2 ring-black border-transparent' : 'border-zinc-200'}`}>
+      
+      {/* Block Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100">
+        <div className="flex items-center gap-2 text-zinc-500">
+          <TypeIcon size={16} />
+          <span className="text-xs font-bold">{typeLabel[block.type]}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => onMove(block.id, "up")} disabled={index === 0} className="p-1.5 rounded hover:bg-zinc-200 text-zinc-400 disabled:opacity-20">
-            <ArrowUp size={16} />
-          </button>
-          <button onClick={() => onMove(block.id, "down")} disabled={index === total - 1} className="p-1.5 rounded hover:bg-zinc-200 text-zinc-400 disabled:opacity-20">
-            <ArrowDown size={16} />
-          </button>
-          <div className="w-px h-3 bg-zinc-300 mx-2" />
-          <button onClick={() => onDelete(block.id)} className="p-1.5 rounded hover:bg-red-100 text-zinc-400 hover:text-red-500">
-            <Trash2 size={16} />
-          </button>
+        <div className="flex items-center">
+          <button onClick={() => onMove(block.id, "up")} disabled={index === 0} className="p-2 text-zinc-300 hover:text-black disabled:opacity-20"><ArrowUp size={16}/></button>
+          <button onClick={() => onMove(block.id, "down")} disabled={index === total - 1} className="p-2 text-zinc-300 hover:text-black disabled:opacity-20"><ArrowDown size={16}/></button>
+          <div className="w-px h-3 bg-zinc-200 mx-1"/>
+          <button onClick={() => onDelete(block.id)} className="p-2 text-zinc-300 hover:text-red-500"><Trash2 size={16}/></button>
         </div>
       </div>
 
-      {/* body */}
-      <div className="p-5 space-y-3">
-        {type === "greeting" && (
+      {/* Block Body */}
+      <div className="p-4 space-y-4">
+        
+        {block.type === "greeting" && (
           <textarea
-            className="w-full min-h-[100px] rounded-lg border p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="挨拶文を入力..."
+            className="w-full min-h-[120px] p-3 rounded-xl bg-zinc-50 border-0 text-sm focus:ring-2 focus:ring-black outline-none resize-none"
+            placeholder="ここに挨拶文を入力してください..."
             value={content.text || ""}
             onChange={(e) => handleChange({ ...content, text: e.target.value })}
           />
         )}
 
-        {type === "image" && (
+        {block.type === "image" && (
           <div className="space-y-3">
-            <div className="relative w-full aspect-video bg-zinc-100 rounded-lg overflow-hidden border-2 border-dashed border-zinc-200 flex items-center justify-center group/img">
-              {content.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={content.url} className="w-full h-full object-cover" />
-              ) : (
-                <ImageIcon className="text-zinc-300" />
-              )}
-              <label className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 flex items-center justify-center cursor-pointer transition-all">
-                {uploading ? <Loader2 className="animate-spin text-white" /> : <Upload className="text-white opacity-0 group-hover/img:opacity-100" />}
-                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, "block")} />
-              </label>
-            </div>
-            <input
-              className="w-full text-xs border rounded p-2"
-              placeholder="キャプション"
-              value={content.caption || ""}
-              onChange={(e) => handleChange({ ...content, caption: e.target.value })}
-            />
+             <div className="relative w-full aspect-video bg-zinc-100 rounded-xl overflow-hidden group">
+               {content.url ? (
+                 // eslint-disable-next-line @next/next/no-img-element
+                 <img src={content.url} className="w-full h-full object-cover" alt="" />
+               ) : (
+                 <div className="flex items-center justify-center h-full text-zinc-300"><ImageIcon /></div>
+               )}
+               <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-all cursor-pointer">
+                  {uploading ? <Loader2 className="animate-spin text-white"/> : <Upload className="text-white opacity-0 group-hover:opacity-100"/>}
+                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, null)} />
+               </label>
+             </div>
+             <input 
+                className="w-full bg-zinc-50 p-2 rounded-lg text-xs outline-none" 
+                placeholder="キャプション (任意)"
+                value={content.caption || ""} 
+                onChange={(e) => handleChange({ ...content, caption: e.target.value })}
+             />
           </div>
         )}
 
-        {type === "program" && (
-          <div className="space-y-4">
-            {(content.items || []).map((item: any, i: number) => {
-              const isBreak = item.type === "break";
-              return (
-                <div key={i} className={`flex gap-3 items-start p-3 rounded-xl border ${item.active ? "bg-blue-50 border-blue-200" : "bg-zinc-50 border-zinc-100"}`}>
-                  {!isBreak ? (
-                    <button onClick={() => toggleActive(i)} className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center ${item.active ? "bg-blue-500 text-white" : "bg-white border text-zinc-400"}`}>
-                      {item.active ? <Pause size={12} /> : <Play size={12} className="ml-0.5" />}
-                    </button>
-                  ) : (
-                    <div className="mt-1 w-8 h-8 flex items-center justify-center text-zinc-400">
-                      <Coffee size={16} />
-                    </div>
-                  )}
-
-                  <div className="flex-1 space-y-2">
-                    <div className="flex gap-2">
-                      <input
-                        className="flex-1 bg-transparent text-sm font-bold placeholder:text-zinc-300 outline-none"
-                        placeholder={isBreak ? "休憩タイトル" : "曲名"}
-                        value={item.title || ""}
-                        onChange={(e) => {
-                          const newItems = [...content.items];
-                          newItems[i].title = e.target.value;
-                          handleChange({ ...content, items: newItems });
-                        }}
-                      />
-                      {!isBreak && (
-                        <label className={`text-[10px] font-bold px-2 py-1 rounded cursor-pointer select-none ${item.isEncore ? "bg-pink-100 text-pink-600" : "bg-zinc-100 text-zinc-300"}`}>
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={item.isEncore || false}
-                            onChange={(e) => {
-                              const newItems = [...content.items];
-                              newItems[i].isEncore = e.target.checked;
-                              handleChange({ ...content, items: newItems });
-                            }}
-                          />
-                          Encore
-                        </label>
-                      )}
-                    </div>
-
-                    {isBreak ? (
-                      <input
-                        className="w-full text-xs bg-transparent outline-none text-zinc-500"
-                        placeholder="15分"
-                        value={item.duration || ""}
-                        onChange={(e) => {
-                          const newItems = [...content.items];
-                          newItems[i].duration = e.target.value;
-                          handleChange({ ...content, items: newItems });
-                        }}
-                      />
-                    ) : (
-                      <>
-                        <input
-                          className="w-full text-xs bg-transparent outline-none text-zinc-500"
-                          placeholder="作曲者"
-                          value={item.composer || ""}
-                          onChange={(e) => {
-                            const newItems = [...content.items];
-                            newItems[i].composer = e.target.value;
-                            handleChange({ ...content, items: newItems });
-                          }}
-                        />
-                        <textarea
-                          className="w-full text-xs border rounded p-2 h-16 resize-none"
-                          placeholder="解説"
-                          value={item.description || ""}
-                          onChange={(e) => {
-                            const newItems = [...content.items];
-                            newItems[i].description = e.target.value;
-                            handleChange({ ...content, items: newItems });
-                          }}
-                        />
-                      </>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      const newItems = content.items.filter((_: any, idx: number) => idx !== i);
-                      handleChange({ ...content, items: newItems });
-                    }}
-                    className="text-zinc-300 hover:text-red-500"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              );
-            })}
-
-            <div className="flex gap-2 justify-center">
-              <button
-                onClick={() =>
-                  handleChange({
-                    ...content,
-                    items: [...(content.items || []), { type: "song", title: "", composer: "", description: "", isEncore: false, active: false }],
-                  })
-                }
-                className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-bold"
-              >
-                + 曲を追加
-              </button>
-              <button
-                onClick={() =>
-                  handleChange({
-                    ...content,
-                    items: [...(content.items || []), { type: "break", title: "休憩", duration: "15分" }],
-                  })
-                }
-                className="px-3 py-1 bg-zinc-100 text-zinc-600 rounded-full text-xs font-bold"
-              >
-                + 休憩を追加
-              </button>
-            </div>
-          </div>
-        )}
-
-        {type === "profile" && (
+        {block.type === "profile" && (
           <div className="space-y-4">
             {(content.people || []).map((p: any, i: number) => (
-              <div key={i} className="flex gap-3 border p-3 rounded-xl bg-zinc-50/50 relative">
-                <div className="w-16 h-16 bg-zinc-200 rounded-full shrink-0 overflow-hidden relative group/icon">
+              <div key={i} className="flex gap-3 items-start">
+                <div className="relative w-16 h-16 bg-zinc-100 rounded-full overflow-hidden shrink-0 group">
                   {p.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.image} className="w-full h-full object-cover" />
-                  ) : (
-                    <User className="m-auto mt-4 text-zinc-400" />
-                  )}
-                  <label className="absolute inset-0 bg-black/0 group-hover/icon:bg-black/30 flex items-center justify-center cursor-pointer">
-                    {uploading ? (
-                      <Loader2 className="animate-spin text-white" />
-                    ) : (
-                      <Upload size={16} className="text-white opacity-0 group-hover/icon:opacity-100" />
-                    )}
-                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, "profile", i)} />
+                    <img src={p.image} className="w-full h-full object-cover" alt=""/>
+                  ) : <User className="m-auto mt-4 text-zinc-300"/>}
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 cursor-pointer">
+                    <Upload size={14} className="text-white opacity-0 group-hover:opacity-100" />
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, i, true)} />
                   </label>
                 </div>
-
                 <div className="flex-1 space-y-2">
-                  <input
-                    className="w-full text-sm font-bold bg-transparent outline-none"
-                    placeholder="名前"
-                    value={p.name || ""}
-                    onChange={(e) => {
-                      const np = [...content.people];
-                      np[i].name = e.target.value;
-                      handleChange({ ...content, people: np });
-                    }}
-                  />
-                  <input
-                    className="w-full text-xs bg-transparent outline-none"
-                    placeholder="役割 (例: Pf.)"
-                    value={p.role || ""}
-                    onChange={(e) => {
-                      const np = [...content.people];
-                      np[i].role = e.target.value;
-                      handleChange({ ...content, people: np });
-                    }}
-                  />
-                  <textarea
-                    className="w-full text-xs border rounded p-2 h-16 resize-none"
-                    placeholder="プロフィール"
-                    value={p.bio || ""}
-                    onChange={(e) => {
-                      const np = [...content.people];
-                      np[i].bio = e.target.value;
-                      handleChange({ ...content, people: np });
-                    }}
-                  />
+                  <input className="w-full bg-zinc-50 rounded-lg px-3 py-2 text-sm font-bold outline-none" placeholder="名前" value={p.name} onChange={(e) => {
+                    const np = [...content.people]; np[i].name = e.target.value; handleChange({ ...content, people: np });
+                  }} />
+                  <input className="w-full bg-zinc-50 rounded-lg px-3 py-2 text-xs outline-none" placeholder="役割 (Pf, Vnなど)" value={p.role} onChange={(e) => {
+                    const np = [...content.people]; np[i].role = e.target.value; handleChange({ ...content, people: np });
+                  }} />
+                  <textarea className="w-full bg-zinc-50 rounded-lg px-3 py-2 text-xs h-20 outline-none resize-none" placeholder="プロフィール文" value={p.bio} onChange={(e) => {
+                    const np = [...content.people]; np[i].bio = e.target.value; handleChange({ ...content, people: np });
+                  }} />
+                  <button onClick={() => {
+                     const np = content.people.filter((_: any, idx: number) => idx !== i);
+                     handleChange({ ...content, people: np });
+                  }} className="text-xs text-red-400 font-bold hover:text-red-600">削除</button>
                 </div>
-
-                <button
-                  onClick={() => {
-                    const np = content.people.filter((_: any, idx: number) => idx !== i);
-                    handleChange({ ...content, people: np });
-                  }}
-                  className="absolute top-2 right-2 text-zinc-300 hover:text-red-500"
-                >
-                  <Trash2 size={14} />
-                </button>
               </div>
             ))}
-
-            <button
-              onClick={() => handleChange({ ...content, people: [...(content.people || []), { name: "", role: "", bio: "", image: "" }] })}
-              className="w-full py-2 bg-zinc-100 text-zinc-500 rounded-lg text-xs font-bold"
-            >
+            <button onClick={() => handleChange({ ...content, people: [...(content.people || []), { name: "", role: "", bio: "", image: "" }] })} className="w-full py-2 bg-zinc-50 text-zinc-400 text-xs font-bold rounded-lg hover:bg-zinc-100">
               + 人物を追加
             </button>
           </div>
         )}
-      </div>
 
-      {/* footer save */}
+        {block.type === "program" && (
+           <div className="space-y-3">
+             {(content.items || []).map((item: any, i: number) => {
+               const isBreak = item.type === "break";
+               return (
+                 <div key={i} className="flex gap-2 items-start border p-2 rounded-xl bg-zinc-50/50">
+                   <div className="pt-2 text-zinc-300 cursor-grab active:cursor-grabbing"><GripVertical size={14}/></div>
+                   <div className="flex-1 space-y-2">
+                     <div className="flex gap-2">
+                        <input className="flex-1 bg-transparent font-bold text-sm outline-none" placeholder={isBreak ? "休憩名" : "曲名"} value={item.title} onChange={(e) => {
+                          const ni = [...content.items]; ni[i].title = e.target.value; handleChange({...content, items: ni});
+                        }} />
+                        {!isBreak && (
+                          <button onClick={() => {
+                             const ni = [...content.items]; ni[i].isEncore = !ni[i].isEncore; handleChange({...content, items: ni});
+                          }} className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.isEncore ? 'bg-black text-white' : 'bg-zinc-200 text-zinc-400'}`}>Encore</button>
+                        )}
+                     </div>
+                     {isBreak ? (
+                        <input className="w-full bg-transparent text-xs outline-none text-zinc-500" placeholder="15分" value={item.duration} onChange={(e) => {
+                          const ni = [...content.items]; ni[i].duration = e.target.value; handleChange({...content, items: ni});
+                        }} />
+                     ) : (
+                       <>
+                         <input className="w-full bg-transparent text-xs outline-none text-zinc-500" placeholder="作曲者" value={item.composer} onChange={(e) => {
+                            const ni = [...content.items]; ni[i].composer = e.target.value; handleChange({...content, items: ni});
+                          }} />
+                         <textarea className="w-full bg-white border border-zinc-100 rounded p-2 text-xs h-16 resize-none outline-none" placeholder="曲解説" value={item.description} onChange={(e) => {
+                            const ni = [...content.items]; ni[i].description = e.target.value; handleChange({...content, items: ni});
+                          }} />
+                       </>
+                     )}
+                     <div className="text-right">
+                        <button onClick={() => {
+                          const ni = content.items.filter((_: any, idx: number) => idx !== i);
+                          handleChange({...content, items: ni});
+                        }} className="text-[10px] text-red-400 font-bold">削除</button>
+                     </div>
+                   </div>
+                 </div>
+               )
+             })}
+             <div className="flex gap-2">
+               <button onClick={() => handleChange({ ...content, items: [...(content.items||[]), {type:"song", title:"", composer:"", description:"", isEncore:false}]})} className="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg">+ 曲</button>
+               <button onClick={() => handleChange({ ...content, items: [...(content.items||[]), {type:"break", title:"休憩", duration:"15分"}]})} className="flex-1 py-2 bg-zinc-100 text-zinc-500 text-xs font-bold rounded-lg">+ 休憩</button>
+             </div>
+           </div>
+        )}
+
+      </div>
+      
+      {/* Save Button (Sticky) */}
       {isDirty && (
-        <div className="absolute -bottom-4 left-0 right-0 flex justify-center pointer-events-none">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="pointer-events-auto shadow-lg bg-black text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-2 hover:scale-105 transition-transform"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-            このブロックを保存
-          </button>
+        <div className="p-3 bg-zinc-50 rounded-b-2xl border-t border-zinc-100 flex justify-end">
+           <button onClick={handleSave} disabled={saving} className="bg-black text-white px-5 py-2 rounded-full text-sm font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-transform">
+             {saving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}
+             保存する
+           </button>
         </div>
       )}
     </div>
