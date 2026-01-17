@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import React, { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -32,8 +32,8 @@ import {
   List,
   GripVertical,
   Star,
-  Download,
-  Calendar
+  Calendar,
+  StopCircle
 } from "lucide-react";
 
 // --- dnd-kit imports ---
@@ -44,7 +44,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragOverlay,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -74,8 +73,8 @@ function InputField({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-// --- Sortable Item Wrapper ---
-function SortableItem({ id, children }: { id: string; children: React.ReactNode }) {
+// --- Sortable Item Wrapper (Handle Only Logic) ---
+function SortableItem({ id, children }: { id: string; children: React.ReactElement }) {
   const {
     attributes,
     listeners,
@@ -91,15 +90,13 @@ function SortableItem({ id, children }: { id: string; children: React.ReactNode 
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 999 : 'auto',
     position: 'relative' as const,
-    touchAction: 'none' // 重要: スマホでのスクロール干渉を防ぐ
+    touchAction: 'none'
   };
 
+  // 子供（BlockCard）に dragHandleProps を渡す
   return (
     <div ref={setNodeRef} style={style}>
-       {/* ハンドルは子コンポーネント側で listeners を付ける */}
-       {/* childrenにattributesとlistenersを渡す形にするため、ここではdivで囲むだけ */}
-       {/* ※ハンドルに {...listeners} {...attributes} を付ける設計にします */}
-       {children}
+       {React.cloneElement(children, { dragHandleProps: { ...listeners, ...attributes } })}
     </div>
   );
 }
@@ -119,10 +116,10 @@ export default function EventEdit({ params }: Props) {
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // DnD Sensors (スマホ対応強化)
+  // DnD Sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { 
-      activationConstraint: { distance: 8 } // 8px動かさないとドラッグ開始しない（スクロール誤爆防止）
+      activationConstraint: { distance: 5 } 
     }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
@@ -164,7 +161,7 @@ export default function EventEdit({ params }: Props) {
     setBlocks(b ?? []);
   }
 
-  // --- DnD Handlers (Blocks) ---
+  // --- DnD Handlers ---
   async function handleDragEnd(event: any) {
     const { active, over } = event;
     if (active.id !== over.id) {
@@ -173,7 +170,6 @@ export default function EventEdit({ params }: Props) {
         const newIndex = items.findIndex((i) => i.id === over.id);
         const newItems = arrayMove(items, oldIndex, newIndex);
         
-        // DB Update (Non-blocking)
         const updates = newItems.map((b, i) => ({ id: b.id, sort_order: (i + 1) * 10 }));
         Promise.all(updates.map(u => supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id)));
         
@@ -225,9 +221,7 @@ export default function EventEdit({ params }: Props) {
     if (targetBlockIndex === -1) return;
     const targetBlock = blocks[targetBlockIndex];
 
-    if (!targetBlock?.content?.items || !targetBlock.content.items[itemIndex]) {
-        return;
-    }
+    if (!targetBlock?.content?.items || !targetBlock.content.items[itemIndex]) return;
 
     const items = [...targetBlock.content.items];
     const targetId = `${blockId}-${itemIndex}`;
@@ -252,43 +246,73 @@ export default function EventEdit({ params }: Props) {
     await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
   }
 
-  async function startBreakTimer(blockId: string, itemIndex: number, minutes: number) {
-    const targetIndex = blocks.findIndex(b => b.id === blockId);
-    if (targetIndex === -1) return;
+  // --- Break Timer Logic ---
+  // Note: 休憩ブロックを探してタイマーをセットするが、LiveModeではパネルから操作するため
+  // 「リスト内の最初の休憩ブロック」または「現在アクティブな休憩ブロック」を対象にする
+  async function startBreak(minutes: number) {
+    // 1. まず現在休憩中なら何もしないか、上書きする（ここでは上書き）
+    // 2. ブロックの中から type="program" の items に type="break" があるか探す
+    let targetBlockId = null;
+    let targetItemIndex = -1;
+
+    // 既にアクティブな休憩があればそれを優先
+    if (playingItemId) {
+       const active = getActiveItemInfo();
+       if (active?.item.type === "break") {
+          targetBlockId = active.block.id;
+          targetItemIndex = active.index;
+       }
+    }
+
+    // なければ、リストの一番最初の休憩を探す
+    if (!targetBlockId) {
+       for (const b of blocks) {
+          if (b.type === "program" && b.content?.items) {
+             const idx = b.content.items.findIndex((it:any) => it.type === "break");
+             if (idx !== -1) {
+                targetBlockId = b.id;
+                targetItemIndex = idx;
+                break;
+             }
+          }
+       }
+    }
+
+    if (!targetBlockId) return showMsg("休憩項目が見つかりません", true);
+
+    const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
     const target = blocks[targetIndex];
-    if (!target?.content?.items) return;
-    
     const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
-    // Break items: active=true means counting down
-    newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
+    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
     
-    setPlayingItemId(`${blockId}-${itemIndex}`);
+    setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
 
     const newBlocks = [...blocks];
     newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
     setBlocks(newBlocks);
 
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
-    showMsg(`${minutes}分のタイマー開始⏳`);
+    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
+    showMsg(`${minutes}分の休憩を開始しました⏳`);
   }
 
-  async function stopBreakTimer(blockId: string, itemIndex: number) {
-    const targetIndex = blocks.findIndex(b => b.id === blockId);
-    if (targetIndex === -1) return;
+  async function stopBreak() {
+    if (!playingItemId) return;
+    const active = getActiveItemInfo();
+    if (!active || active.item.type !== "break") return;
+
+    const targetIndex = blocks.findIndex(b => b.id === active.block.id);
     const target = blocks[targetIndex];
-
     const newItems = [...target.content.items];
-    newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: null, active: false };
-    
-    setPlayingItemId(null);
+    newItems[active.index] = { ...newItems[active.index], timerEnd: null, active: false };
 
+    setPlayingItemId(null);
     const newBlocks = [...blocks];
     newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
     setBlocks(newBlocks);
 
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
-    showMsg("休憩終了");
+    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
+    showMsg("休憩を終了しました");
   }
 
   async function addBlock(type: string) {
@@ -373,31 +397,24 @@ export default function EventEdit({ params }: Props) {
         {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
       </div>
 
-      {/* SHARE MODAL (Digital Invitation) */}
+      {/* SHARE MODAL */}
       {showShareModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowShareModal(false)}>
            <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              
-              {/* Card View */}
               <div className="bg-slate-50 p-6 flex flex-col items-center text-center relative overflow-hidden">
                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
                  <h3 className="font-bold text-lg text-slate-800 mb-1 mt-2">{event.title}</h3>
                  <p className="text-xs text-slate-400 mb-6 uppercase tracking-widest font-bold">Official Program</p>
-                 
                  <div className="bg-white p-4 rounded-3xl shadow-lg border border-slate-100 mb-6">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}`} alt="QR" className="w-48 h-48 mix-blend-multiply" />
                  </div>
-                 
                  <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-200/50 px-4 py-2 rounded-full mb-4">
                     <Calendar size={14}/>
                     <span>{new Date().toLocaleDateString()}</span>
                  </div>
-                 
                  <div className="text-[10px] text-slate-400 font-mono break-all">{viewerUrl}</div>
               </div>
-
-              {/* Actions */}
               <div className="p-4 bg-white border-t border-slate-100 grid gap-3">
                  <button className="w-full py-3.5 bg-slate-900 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2" onClick={() => setShowShareModal(false)}>
                     閉じる
@@ -409,11 +426,11 @@ export default function EventEdit({ params }: Props) {
       )}
 
       {/* MAIN CONTENT */}
-      <main className="max-w-xl mx-auto">
+      <main className="max-w-xl mx-auto h-[calc(100vh-8.5rem)]">
         
         {/* EDIT TAB */}
         {activeTab === "edit" && (
-          <div className="animate-in fade-in p-4 space-y-8">
+          <div className="animate-in fade-in p-4 space-y-8 h-full overflow-y-auto pb-32">
             
             {/* HERO */}
             <div className="pt-2 pb-4">
@@ -488,14 +505,14 @@ export default function EventEdit({ params }: Props) {
           </div>
         )}
 
-        {/* LIVE TAB (Redesigned) */}
+        {/* LIVE TAB (3-Section Cockpit UI) */}
         {activeTab === "live" && (
-          <div className="animate-in fade-in flex flex-col min-h-[85vh] bg-slate-100">
+          <div className="animate-in fade-in flex flex-col h-full bg-slate-100 relative">
             
-            {/* 1. ENCORE HEADER */}
-            <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+            {/* 1. ENCORE HEADER (Top) */}
+            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm shrink-0">
                <div>
-                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-0.5">Stage Control</h2>
+                  <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Encore Control</h2>
                   <div className="flex items-center gap-2">
                      <div className={`w-2 h-2 rounded-full ${encoreRevealed ? 'bg-pink-500 animate-pulse' : 'bg-slate-300'}`}></div>
                      <span className={`font-bold text-sm ${encoreRevealed ? 'text-pink-600' : 'text-slate-500'}`}>{encoreRevealed ? "アンコール公開中" : "アンコール非公開"}</span>
@@ -509,128 +526,86 @@ export default function EventEdit({ params }: Props) {
                </button>
             </div>
 
-            <div className="p-4 space-y-6 flex-1 overflow-y-auto">
-              
-              {/* 2. CURRENT STATUS CARD */}
-              <div className="bg-white rounded-[2rem] p-6 shadow-xl border border-white/50 relative overflow-hidden">
-                 <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
-                 
-                 {activeInfo && activeInfo.item ? (
-                    /* Active State */
-                    <div className="text-center">
-                       {activeInfo.item.type === "break" ? (
-                          // BREAK MODE UI
-                          <div className="py-2">
-                             <div className="inline-flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full text-xs font-bold mb-4 animate-pulse">
-                                <Coffee size={14}/> 休憩中
-                             </div>
-                             <h3 className="text-xl font-bold text-slate-700 mb-2">{activeInfo.item.title}</h3>
-                             <div className="text-7xl font-black text-slate-800 tabular-nums tracking-tighter my-4 font-mono">
-                                {(() => {
-                                   if (!activeInfo.item.timerEnd) return "--:--";
-                                   const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
-                                   if (diff <= 0) return "00:00";
-                                   const m = Math.floor(diff / 60000);
-                                   const s = Math.floor((diff % 60000) / 1000);
-                                   return `${m}:${s.toString().padStart(2, '0')}`;
-                                })()}
-                             </div>
-                             <button 
-                               onClick={() => stopBreakTimer(activeInfo.block.id, activeInfo.index)}
-                               className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2"
+            {/* 2. TIMELINE LIST (Middle - Scrollable) */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-32">
+                 {blocks.filter(b => b.type === "program").map(block => (
+                    <div key={block.id} className="space-y-2">
+                       {block.content.items?.map((item: any, i: number) => {
+                          const isActive = playingItemId === `${block.id}-${i}`;
+                          const isBreak = item.type === "break";
+                          
+                          if (item.type === "section") return <div key={i} className="pt-4 pb-1 pl-2 text-xs font-bold text-slate-400 border-b border-slate-200/50">{item.title}</div>;
+                          if (item.type === "memo") return <div key={i} className="mx-1 p-3 bg-yellow-50 text-yellow-800 text-xs rounded-lg border border-yellow-100">📝 {item.title}</div>;
+
+                          return (
+                             <div key={i} 
+                               className={`relative p-4 rounded-xl border transition-all ${
+                                 isActive 
+                                   ? 'bg-white border-indigo-500 shadow-md ring-2 ring-indigo-50 scale-[1.02] z-10' 
+                                   : 'bg-white border-slate-100 opacity-90'
+                               }`}
                              >
-                                <X size={18}/> 休憩を終了する
-                             </button>
-                          </div>
-                       ) : (
-                          // SONG MODE UI
-                          <div className="py-2">
-                             <div className="inline-flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-1.5 rounded-full text-xs font-bold mb-4">
-                                <MonitorPlay size={14}/> Now Playing
-                             </div>
-                             <h3 className="text-2xl font-bold text-slate-900 leading-tight mb-2">{activeInfo.item.title}</h3>
-                             <p className="text-slate-500 text-sm font-medium">{activeInfo.item.composer}</p>
-                             
-                             <div className="mt-8 flex justify-center">
-                                <button onClick={() => toggleActiveItem(activeInfo.block.id, activeInfo.index)} className="w-20 h-20 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-indigo-200 active:scale-95 transition-transform">
-                                   <Pause fill="currentColor" size={32}/>
-                                </button>
-                             </div>
-                          </div>
-                       )}
-                    </div>
-                 ) : (
-                    /* Standby State */
-                    <div className="py-8 text-center text-slate-400">
-                       <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <Play size={32} className="text-slate-300 ml-1"/>
-                       </div>
-                       <p className="font-bold text-lg text-slate-500">スタンバイ</p>
-                       <p className="text-xs mt-1">下のリストから項目を選択して開始</p>
-                    </div>
-                 )}
-              </div>
-
-              {/* 3. TIMELINE */}
-              <div>
-                 <h3 className="px-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Timeline</h3>
-                 <div className="space-y-3 pb-24">
-                    {blocks.filter(b => b.type === "program").map(block => (
-                       <div key={block.id} className="space-y-2">
-                          {block.content.items?.map((item: any, i: number) => {
-                             const isActive = playingItemId === `${block.id}-${i}`;
-                             const isBreak = item.type === "break";
-                             
-                             if (item.type === "section") return <div key={i} className="pt-4 pb-1 pl-2 text-xs font-bold text-slate-400 border-b border-slate-200/50">{item.title}</div>;
-                             if (item.type === "memo") return <div key={i} className="mx-1 p-3 bg-yellow-50 text-yellow-800 text-xs rounded-lg border border-yellow-100">📝 {item.title}</div>;
-
-                             return (
-                                <div key={i} 
-                                  className={`relative p-4 rounded-xl border transition-all ${
-                                    isActive 
-                                      ? 'bg-white border-indigo-200 shadow-md ring-2 ring-indigo-50' 
-                                      : 'bg-white border-slate-100 opacity-90'
-                                  }`}
-                                >
-                                   {/* Content Row */}
-                                   <div className="flex items-center gap-4">
-                                      <button 
-                                        onClick={() => toggleActiveItem(block.id, i)} 
-                                        className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-400'}`}
-                                      >
-                                         {isActive ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}
-                                      </button>
-                                      
-                                      <div className="flex-1 min-w-0">
-                                         <div className={`font-bold text-sm truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>{item.title}</div>
-                                         <div className="text-xs text-slate-400 mt-0.5">{isBreak ? '休憩' : item.composer}</div>
-                                      </div>
-                                      
-                                      {item.isEncore && <span className="shrink-0 px-2 py-1 bg-pink-100 text-pink-600 text-[10px] font-bold rounded">Enc</span>}
+                                <div className="flex items-center gap-4">
+                                   <button 
+                                     onClick={() => toggleActiveItem(block.id, i)} 
+                                     className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-slate-100 text-slate-400'}`}
+                                   >
+                                      {isActive ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}
+                                   </button>
+                                   
+                                   <div className="flex-1 min-w-0">
+                                      <div className={`font-bold text-sm truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>{item.title}</div>
+                                      <div className="text-xs text-slate-400 mt-0.5">{isBreak ? `休憩 (${item.duration})` : item.composer}</div>
                                    </div>
-
-                                   {/* Break Controls (Inline) */}
-                                   {isBreak && !isActive && (
-                                      <div className="mt-3 pt-3 border-t border-slate-100 flex gap-2 overflow-x-auto">
-                                         {[10, 15, 20].map(min => (
-                                            <button 
-                                              key={min}
-                                              onClick={() => startBreakTimer(block.id, i, min)} 
-                                              className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 whitespace-nowrap"
-                                            >
-                                               {min}分開始
-                                            </button>
-                                         ))}
-                                      </div>
+                                   
+                                   {isActive && (
+                                     <div className="shrink-0 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded">演奏中</div>
                                    )}
+                                   {item.isEncore && <span className="shrink-0 px-2 py-1 bg-pink-100 text-pink-600 text-[10px] font-bold rounded">Enc</span>}
                                 </div>
-                             );
-                          })}
-                       </div>
-                    ))}
-                 </div>
-              </div>
+                             </div>
+                          );
+                       })}
+                    </div>
+                 ))}
+                 <div className="h-12"/>
             </div>
+
+            {/* 3. BREAK CONTROL PANEL (Bottom Fixed) */}
+            <div className="absolute bottom-0 inset-x-0 bg-white border-t border-slate-200 p-4 shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.1)] z-20">
+               {activeInfo?.item.type === "break" ? (
+                  // ON BREAK UI
+                  <div className="flex items-center gap-4 animate-in slide-in-from-bottom-2">
+                     <div className="flex-1">
+                        <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Coffee size={10}/> 休憩中</div>
+                        <div className="text-3xl font-black text-slate-800 tabular-nums font-mono leading-none">
+                           {(() => {
+                              if (!activeInfo.item.timerEnd) return "--:--";
+                              const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
+                              if (diff <= 0) return "00:00";
+                              const m = Math.floor(diff / 60000);
+                              const s = Math.floor((diff % 60000) / 1000);
+                              return `${m}:${s.toString().padStart(2, '0')}`;
+                           })()}
+                        </div>
+                     </div>
+                     <button onClick={stopBreak} className="h-12 px-6 bg-slate-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-transform flex items-center gap-2">
+                        <StopCircle size={18} /> 終了
+                     </button>
+                  </div>
+               ) : (
+                  // BREAK START UI
+                  <div className="flex items-center gap-3">
+                     <div className="text-[10px] font-bold text-slate-400 w-12 text-center uppercase leading-tight">Break<br/>Control</div>
+                     <div className="flex-1 flex gap-2 overflow-x-auto">
+                        <button onClick={() => startBreak(10)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">10分</button>
+                        <button onClick={() => startBreak(15)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">15分</button>
+                        <button onClick={() => startBreak(20)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">20分</button>
+                     </div>
+                  </div>
+               )}
+            </div>
+
           </div>
         )}
       </main>
@@ -687,14 +662,11 @@ function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
 }
 
 // --- ACCORDION BLOCK CARD ---
-function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, supabaseClient }: any) {
+function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, supabaseClient, dragHandleProps }: any) {
   const [content, setContent] = useState(block.content ?? {});
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-
-  // dnd-kit用リスナー
-  const { listeners } = useSortable({ id: block.id });
 
   // Sync content
   useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
@@ -742,8 +714,12 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
       {/* HEADER */}
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {/* dnd-kit Handle */}
-           <div className="text-slate-300 cursor-grab active:cursor-grabbing hover:text-slate-500 p-2 -ml-2 touch-none" {...listeners} onClick={e => e.stopPropagation()}>
+           {/* dnd-kit Handle (Only this part is draggable) */}
+           <div 
+             className="text-slate-300 hover:text-slate-500 p-2 -ml-2 touch-none cursor-grab active:cursor-grabbing" 
+             {...dragHandleProps} 
+             onClick={e => e.stopPropagation()}
+           >
              <GripVertical size={20}/>
            </div>
            
@@ -767,13 +743,12 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
         <div className="p-5 pt-0 animate-in slide-in-from-top-2 cursor-auto" onClick={e => e.stopPropagation()}>
            <div className="py-6 space-y-6 border-t border-slate-50">
               
-              {/* === Greeting (Fix: Label Z-Index) === */}
+              {/* === Greeting === */}
               {block.type === "greeting" && (
                 <>
                   <div className="flex gap-4">
                     <div className="relative w-24 h-24 bg-slate-100 rounded-2xl overflow-hidden shrink-0 border border-slate-200 shadow-inner group">
                       {content.image ? <img src={content.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-8 text-slate-300"/>}
-                      {/* 修正: labelをabsoluteで全面に広げ、z-indexを高くする */}
                       <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors z-10">
                          <Camera size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity"/>
                          <input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} />
@@ -853,7 +828,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                 </div>
               )}
 
-              {/* === Program (Simplified DnD) === */}
+              {/* === Program === */}
               {block.type === "program" && (
                   <div className="space-y-4">
                     {(content.items || []).map((item: any, i: number) => {
