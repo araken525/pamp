@@ -31,7 +31,9 @@ import {
   Type,
   List,
   GripVertical,
-  Star
+  Star,
+  Download,
+  Calendar
 } from "lucide-react";
 
 // --- dnd-kit imports ---
@@ -89,11 +91,14 @@ function SortableItem({ id, children }: { id: string; children: React.ReactNode 
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 999 : 'auto',
     position: 'relative' as const,
+    touchAction: 'none' // 重要: スマホでのスクロール干渉を防ぐ
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style}>
        {/* ハンドルは子コンポーネント側で listeners を付ける */}
+       {/* childrenにattributesとlistenersを渡す形にするため、ここではdivで囲むだけ */}
+       {/* ※ハンドルに {...listeners} {...attributes} を付ける設計にします */}
        {children}
     </div>
   );
@@ -114,9 +119,11 @@ export default function EventEdit({ params }: Props) {
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // DnD Sensors
+  // DnD Sensors (スマホ対応強化)
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), // 5px動かしたらドラッグ開始（誤タップ防止）
+    useSensor(PointerSensor, { 
+      activationConstraint: { distance: 8 } // 8px動かさないとドラッグ開始しない（スクロール誤爆防止）
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -212,7 +219,6 @@ export default function EventEdit({ params }: Props) {
   }
 
   async function toggleActiveItem(blockId: string, itemIndex: number) {
-    // Crash Fix: Guard Clauses
     if (!blocks || blocks.length === 0) return;
     
     const targetBlockIndex = blocks.findIndex((b) => b.id === blockId);
@@ -220,29 +226,25 @@ export default function EventEdit({ params }: Props) {
     const targetBlock = blocks[targetBlockIndex];
 
     if (!targetBlock?.content?.items || !targetBlock.content.items[itemIndex]) {
-        console.error("Item not found");
         return;
     }
 
     const items = [...targetBlock.content.items];
     const targetId = `${blockId}-${itemIndex}`;
     
-    // Toggle Logic
     const isCurrentlyActive = playingItemId === targetId;
     const nextState = !isCurrentlyActive;
     
     setPlayingItemId(nextState ? targetId : null);
 
-    // Update active status in items array
     items.forEach((it, idx) => {
         if (idx === itemIndex) {
             it.active = nextState;
         } else {
-            it.active = false; // Turn off others in same block
+            it.active = false; 
         }
     });
     
-    // Optimistic Update
     const newBlocks = [...blocks];
     newBlocks[targetBlockIndex] = { ...targetBlock, content: { ...targetBlock.content, items } };
     setBlocks(newBlocks);
@@ -250,18 +252,16 @@ export default function EventEdit({ params }: Props) {
     await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
   }
 
-  async function startBreakTimer(blockId: string, itemIndex: number, minutesStr: string) {
-    const min = parseInt(minutesStr);
-    if (isNaN(min) || min <= 0) return showMsg("分数を入力してください", true);
-
+  async function startBreakTimer(blockId: string, itemIndex: number, minutes: number) {
     const targetIndex = blocks.findIndex(b => b.id === blockId);
     if (targetIndex === -1) return;
     const target = blocks[targetIndex];
     if (!target?.content?.items) return;
     
-    const end = new Date(Date.now() + min * 60000).toISOString();
+    const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
-    newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: end, duration: `${min}分`, active: true };
+    // Break items: active=true means counting down
+    newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
     
     setPlayingItemId(`${blockId}-${itemIndex}`);
 
@@ -270,7 +270,7 @@ export default function EventEdit({ params }: Props) {
     setBlocks(newBlocks);
 
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
-    showMsg(`${min}分のタイマー開始⏳`);
+    showMsg(`${minutes}分のタイマー開始⏳`);
   }
 
   async function stopBreakTimer(blockId: string, itemIndex: number) {
@@ -335,7 +335,7 @@ export default function EventEdit({ params }: Props) {
     }
   }
 
-  // Live Mode Helpers (Safe Access)
+  // Live Mode Helpers
   const getActiveItemInfo = () => {
       if (!playingItemId) return null;
       const [bId, iIdxStr] = playingItemId.split("-");
@@ -361,7 +361,9 @@ export default function EventEdit({ params }: Props) {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex justify-between items-center safe-top transition-all">
         <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
         <div className="flex gap-2">
-           <button onClick={() => setShowShareModal(true)} className="p-2 bg-slate-100 rounded-full text-slate-600 hover:bg-slate-200 transition-colors"><Share2 size={18}/></button>
+           <button onClick={() => setShowShareModal(true)} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors flex items-center gap-1 px-3">
+              <Share2 size={16}/> <span className="text-xs font-bold">配布</span>
+           </button>
            <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-900 text-white rounded-full shadow-md active:scale-95 transition-transform"><Eye size={18} /></Link>
         </div>
       </header>
@@ -371,17 +373,37 @@ export default function EventEdit({ params }: Props) {
         {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
       </div>
 
-      {/* SHARE MODAL */}
+      {/* SHARE MODAL (Digital Invitation) */}
       {showShareModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in" onClick={() => setShowShareModal(false)}>
-           <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm text-center space-y-6 shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              <h3 className="font-bold text-xl text-slate-800">プログラムを配布</h3>
-              <div className="bg-white p-4 border border-slate-100 rounded-3xl inline-block shadow-lg">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(viewerUrl)}`} alt="QR" className="w-40 h-40 mix-blend-multiply" />
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowShareModal(false)}>
+           <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+              
+              {/* Card View */}
+              <div className="bg-slate-50 p-6 flex flex-col items-center text-center relative overflow-hidden">
+                 <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
+                 <h3 className="font-bold text-lg text-slate-800 mb-1 mt-2">{event.title}</h3>
+                 <p className="text-xs text-slate-400 mb-6 uppercase tracking-widest font-bold">Official Program</p>
+                 
+                 <div className="bg-white p-4 rounded-3xl shadow-lg border border-slate-100 mb-6">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(viewerUrl)}`} alt="QR" className="w-48 h-48 mix-blend-multiply" />
+                 </div>
+                 
+                 <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-200/50 px-4 py-2 rounded-full mb-4">
+                    <Calendar size={14}/>
+                    <span>{new Date().toLocaleDateString()}</span>
+                 </div>
+                 
+                 <div className="text-[10px] text-slate-400 font-mono break-all">{viewerUrl}</div>
               </div>
-              <div className="bg-slate-50 p-4 rounded-2xl text-xs break-all select-all font-mono text-slate-500 border border-slate-100">{viewerUrl}</div>
-              <button className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl active:scale-95 transition-transform shadow-lg shadow-slate-200" onClick={() => setShowShareModal(false)}>閉じる</button>
+
+              {/* Actions */}
+              <div className="p-4 bg-white border-t border-slate-100 grid gap-3">
+                 <button className="w-full py-3.5 bg-slate-900 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2" onClick={() => setShowShareModal(false)}>
+                    閉じる
+                 </button>
+                 <p className="text-[10px] text-center text-slate-400">※スクリーンショットを撮って共有してください</p>
+              </div>
            </div>
         </div>
       )}
@@ -393,16 +415,15 @@ export default function EventEdit({ params }: Props) {
         {activeTab === "edit" && (
           <div className="animate-in fade-in p-4 space-y-8">
             
-            {/* HERO AREA */}
+            {/* HERO */}
             <div className="pt-2 pb-4">
                <h2 className="text-2xl font-extrabold text-slate-900 leading-tight">{event.title}</h2>
                <div className="flex items-center gap-2 mt-2">
-                 <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-slate-200">Editing</span>
-                 <span className="text-xs text-slate-400 font-medium">最終更新: {new Date().toLocaleDateString()}</span>
+                 <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-indigo-100">Editing</span>
                </div>
             </div>
 
-            {/* COVER IMAGE */}
+            {/* COVER */}
             <section className="bg-white rounded-[2rem] overflow-hidden shadow-sm border border-slate-100">
                 <div className="relative aspect-[16/9] bg-slate-50 group">
                   {displayCover ? (
@@ -414,8 +435,8 @@ export default function EventEdit({ params }: Props) {
                       <span className="text-xs font-bold">表紙画像なし</span>
                     </div>
                   )}
-                  <label className="absolute bottom-3 right-3">
-                    <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer hover:bg-white transition-all active:scale-95">
+                  <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
+                    <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
                       {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
                     </div>
                     <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
@@ -428,7 +449,7 @@ export default function EventEdit({ params }: Props) {
                 )}
             </section>
 
-            {/* BLOCKS LIST (Dnd Kit Implementation) */}
+            {/* BLOCKS LIST (DnD) */}
             <div className="space-y-4">
                <DndContext 
                   sensors={sensors}
@@ -467,105 +488,148 @@ export default function EventEdit({ params }: Props) {
           </div>
         )}
 
-        {/* LIVE TAB */}
+        {/* LIVE TAB (Redesigned) */}
         {activeTab === "live" && (
-          <div className="animate-in fade-in flex flex-col min-h-[80vh]">
+          <div className="animate-in fade-in flex flex-col min-h-[85vh] bg-slate-100">
             
-            {/* ENCORE STATUS BAR */}
-            <div className={`sticky top-0 z-30 px-6 py-4 flex items-center justify-between shadow-sm transition-colors duration-500 ${encoreRevealed ? 'bg-pink-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-               <div className="flex items-center gap-3">
-                 {encoreRevealed ? <Unlock size={20}/> : <Lock size={20}/>}
-                 <span className="font-bold text-sm tracking-wider">{encoreRevealed ? "アンコール公開中" : "アンコール非公開"}</span>
+            {/* 1. ENCORE HEADER */}
+            <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+               <div>
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-0.5">Stage Control</h2>
+                  <div className="flex items-center gap-2">
+                     <div className={`w-2 h-2 rounded-full ${encoreRevealed ? 'bg-pink-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                     <span className={`font-bold text-sm ${encoreRevealed ? 'text-pink-600' : 'text-slate-500'}`}>{encoreRevealed ? "アンコール公開中" : "アンコール非公開"}</span>
+                  </div>
                </div>
-               <button onClick={toggleEncore} className="bg-white/20 px-4 py-1.5 rounded-full text-xs font-bold active:scale-95 transition-transform">
-                  切り替え
+               <button 
+                 onClick={toggleEncore} 
+                 className={`px-5 py-2 rounded-full font-bold text-xs transition-all active:scale-95 shadow-sm border ${encoreRevealed ? 'bg-pink-500 text-white border-pink-600' : 'bg-white text-slate-600 border-slate-200'}`}
+               >
+                  {encoreRevealed ? "公開中" : "公開する"}
                </button>
             </div>
 
-            <div className="p-4 space-y-6 flex-1 bg-slate-100">
+            <div className="p-4 space-y-6 flex-1 overflow-y-auto">
               
-              {/* NOW PLAYING / BREAK */}
-              <div className="bg-white rounded-[2rem] p-6 shadow-xl border border-slate-200">
-                <h3 className="text-xs font-bold text-slate-400 mb-4 flex items-center gap-2 uppercase tracking-widest">
-                  {activeInfo?.item?.type === "break" ? <Coffee size={14}/> : <MonitorPlay size={14}/>} Current Status
-                </h3>
-                
-                {activeInfo && activeInfo.item ? (
-                   <div className="text-center space-y-4">
-                      {activeInfo.item.type === "break" ? (
-                        <div className="py-4 animate-in zoom-in-95">
-                          <h2 className="text-2xl font-bold text-slate-600 mb-2">{activeInfo.item.title}中</h2>
-                          <div className="text-6xl font-black text-slate-800 tabular-nums tracking-tighter my-4">
-                             {(() => {
-                               if (!activeInfo.item.timerEnd) return "--:--";
-                               const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
-                               if (diff <= 0) return "00:00";
-                               const m = Math.floor(diff / 60000);
-                               const s = Math.floor((diff % 60000) / 1000);
-                               return `${m}:${s.toString().padStart(2, '0')}`;
-                             })()}
+              {/* 2. CURRENT STATUS CARD */}
+              <div className="bg-white rounded-[2rem] p-6 shadow-xl border border-white/50 relative overflow-hidden">
+                 <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
+                 
+                 {activeInfo && activeInfo.item ? (
+                    /* Active State */
+                    <div className="text-center">
+                       {activeInfo.item.type === "break" ? (
+                          // BREAK MODE UI
+                          <div className="py-2">
+                             <div className="inline-flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full text-xs font-bold mb-4 animate-pulse">
+                                <Coffee size={14}/> 休憩中
+                             </div>
+                             <h3 className="text-xl font-bold text-slate-700 mb-2">{activeInfo.item.title}</h3>
+                             <div className="text-7xl font-black text-slate-800 tabular-nums tracking-tighter my-4 font-mono">
+                                {(() => {
+                                   if (!activeInfo.item.timerEnd) return "--:--";
+                                   const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
+                                   if (diff <= 0) return "00:00";
+                                   const m = Math.floor(diff / 60000);
+                                   const s = Math.floor((diff % 60000) / 1000);
+                                   return `${m}:${s.toString().padStart(2, '0')}`;
+                                })()}
+                             </div>
+                             <button 
+                               onClick={() => stopBreakTimer(activeInfo.block.id, activeInfo.index)}
+                               className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2"
+                             >
+                                <X size={18}/> 休憩を終了する
+                             </button>
                           </div>
-                          <button onClick={() => stopBreakTimer(activeInfo.block.id, activeInfo.index)} className="bg-slate-200 text-slate-600 px-6 py-3 rounded-full font-bold text-sm active:scale-95">休憩を終了する</button>
-                        </div>
-                      ) : (
-                        <div className="py-2 animate-in slide-in-from-bottom-2">
-                           <div className="inline-block px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold mb-2">Now Playing</div>
-                           <h2 className="text-2xl font-bold text-slate-900 leading-tight">{activeInfo.item.title}</h2>
-                           <p className="text-slate-500 mt-2">{activeInfo.item.composer}</p>
-                           <button onClick={() => toggleActiveItem(activeInfo.block.id, activeInfo.index)} className="mt-6 w-16 h-16 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-200 active:scale-95 transition-transform mx-auto">
-                              <Pause fill="currentColor" size={28}/>
-                           </button>
-                        </div>
-                      )}
-                   </div>
-                ) : (
-                   <div className="py-10 text-center text-slate-400">
-                     <p className="font-bold">待機中</p>
-                     <p className="text-xs mt-2">下のリストから開始してください</p>
-                   </div>
-                )}
+                       ) : (
+                          // SONG MODE UI
+                          <div className="py-2">
+                             <div className="inline-flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-1.5 rounded-full text-xs font-bold mb-4">
+                                <MonitorPlay size={14}/> Now Playing
+                             </div>
+                             <h3 className="text-2xl font-bold text-slate-900 leading-tight mb-2">{activeInfo.item.title}</h3>
+                             <p className="text-slate-500 text-sm font-medium">{activeInfo.item.composer}</p>
+                             
+                             <div className="mt-8 flex justify-center">
+                                <button onClick={() => toggleActiveItem(activeInfo.block.id, activeInfo.index)} className="w-20 h-20 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-indigo-200 active:scale-95 transition-transform">
+                                   <Pause fill="currentColor" size={32}/>
+                                </button>
+                             </div>
+                          </div>
+                       )}
+                    </div>
+                 ) : (
+                    /* Standby State */
+                    <div className="py-8 text-center text-slate-400">
+                       <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Play size={32} className="text-slate-300 ml-1"/>
+                       </div>
+                       <p className="font-bold text-lg text-slate-500">スタンバイ</p>
+                       <p className="text-xs mt-1">下のリストから項目を選択して開始</p>
+                    </div>
+                 )}
               </div>
 
-              {/* TIMELINE LIST */}
-              <div className="space-y-3">
-                 <h3 className="px-2 text-xs font-bold text-slate-400 uppercase tracking-widest">Timeline</h3>
-                 {blocks.filter(b => b.type === "program").map(block => (
-                    <div key={block.id} className="space-y-2">
-                       {block.content.items?.map((item: any, i: number) => {
-                          const isActive = playingItemId === `${block.id}-${i}`;
-                          const isBreak = item.type === "break";
-                          if (item.type === "section") return <div key={i} className="pt-4 pb-1 pl-2 text-xs font-bold text-slate-400">{item.title}</div>;
-                          if (item.type === "memo") return <div key={i} className="mx-2 p-3 bg-yellow-50 text-yellow-800 text-xs rounded-lg border border-yellow-100 mb-2">📝 {item.title}</div>;
+              {/* 3. TIMELINE */}
+              <div>
+                 <h3 className="px-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Timeline</h3>
+                 <div className="space-y-3 pb-24">
+                    {blocks.filter(b => b.type === "program").map(block => (
+                       <div key={block.id} className="space-y-2">
+                          {block.content.items?.map((item: any, i: number) => {
+                             const isActive = playingItemId === `${block.id}-${i}`;
+                             const isBreak = item.type === "break";
+                             
+                             if (item.type === "section") return <div key={i} className="pt-4 pb-1 pl-2 text-xs font-bold text-slate-400 border-b border-slate-200/50">{item.title}</div>;
+                             if (item.type === "memo") return <div key={i} className="mx-1 p-3 bg-yellow-50 text-yellow-800 text-xs rounded-lg border border-yellow-100">📝 {item.title}</div>;
 
-                          return (
-                             <div key={i} 
-                               className={`p-4 rounded-xl border flex items-center gap-4 transition-all ${
-                                 isActive 
-                                   ? 'bg-indigo-50 border-indigo-200 shadow-md transform scale-[1.02]' 
-                                   : 'bg-white border-slate-100 opacity-80 hover:opacity-100'
-                               }`}
-                             >
-                                <button onClick={() => toggleActiveItem(block.id, i)} className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                   {isActive ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor" className="ml-0.5"/>}
-                                </button>
-                                
-                                <div className="flex-1 min-w-0">
-                                   <div className={`font-bold text-sm truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>{item.title}</div>
+                             return (
+                                <div key={i} 
+                                  className={`relative p-4 rounded-xl border transition-all ${
+                                    isActive 
+                                      ? 'bg-white border-indigo-200 shadow-md ring-2 ring-indigo-50' 
+                                      : 'bg-white border-slate-100 opacity-90'
+                                  }`}
+                                >
+                                   {/* Content Row */}
+                                   <div className="flex items-center gap-4">
+                                      <button 
+                                        onClick={() => toggleActiveItem(block.id, i)} 
+                                        className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-400'}`}
+                                      >
+                                         {isActive ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor" className="ml-0.5"/>}
+                                      </button>
+                                      
+                                      <div className="flex-1 min-w-0">
+                                         <div className={`font-bold text-sm truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>{item.title}</div>
+                                         <div className="text-xs text-slate-400 mt-0.5">{isBreak ? '休憩' : item.composer}</div>
+                                      </div>
+                                      
+                                      {item.isEncore && <span className="shrink-0 px-2 py-1 bg-pink-100 text-pink-600 text-[10px] font-bold rounded">Enc</span>}
+                                   </div>
+
+                                   {/* Break Controls (Inline) */}
                                    {isBreak && !isActive && (
-                                     <div className="flex items-center gap-2 mt-2">
-                                        <input type="number" id={`t-${block.id}-${i}`} placeholder="15" className="w-12 bg-slate-100 rounded p-1 text-center text-xs font-bold" defaultValue={15} />
-                                        <button onClick={() => startBreakTimer(block.id, i, (document.getElementById(`t-${block.id}-${i}`) as HTMLInputElement).value)} className="bg-slate-800 text-white px-3 py-1 rounded text-xs font-bold">開始</button>
-                                     </div>
+                                      <div className="mt-3 pt-3 border-t border-slate-100 flex gap-2 overflow-x-auto">
+                                         {[10, 15, 20].map(min => (
+                                            <button 
+                                              key={min}
+                                              onClick={() => startBreakTimer(block.id, i, min)} 
+                                              className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 whitespace-nowrap"
+                                            >
+                                               {min}分開始
+                                            </button>
+                                         ))}
+                                      </div>
                                    )}
                                 </div>
-                                {item.isEncore && <span className="text-[10px] font-bold bg-pink-100 text-pink-600 px-2 py-0.5 rounded-full flex items-center gap-1"><Star size={10} fill="currentColor"/> Encore</span>}
-                             </div>
-                          );
-                       })}
-                    </div>
-                 ))}
+                             );
+                          })}
+                       </div>
+                    ))}
+                 </div>
               </div>
-              <div className="h-24" />
             </div>
           </div>
         )}
@@ -679,7 +743,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
            {/* dnd-kit Handle */}
-           <div className="text-slate-300 cursor-grab active:cursor-grabbing hover:text-slate-500 p-1" {...listeners} onClick={e => e.stopPropagation()}>
+           <div className="text-slate-300 cursor-grab active:cursor-grabbing hover:text-slate-500 p-2 -ml-2 touch-none" {...listeners} onClick={e => e.stopPropagation()}>
              <GripVertical size={20}/>
            </div>
            
@@ -703,14 +767,17 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
         <div className="p-5 pt-0 animate-in slide-in-from-top-2 cursor-auto" onClick={e => e.stopPropagation()}>
            <div className="py-6 space-y-6 border-t border-slate-50">
               
-              {/* === Greeting === */}
+              {/* === Greeting (Fix: Label Z-Index) === */}
               {block.type === "greeting" && (
                 <>
                   <div className="flex gap-4">
                     <div className="relative w-24 h-24 bg-slate-100 rounded-2xl overflow-hidden shrink-0 border border-slate-200 shadow-inner group">
                       {content.image ? <img src={content.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-8 text-slate-300"/>}
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors"><Camera size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity"/></label>
-                      <input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} />
+                      {/* 修正: labelをabsoluteで全面に広げ、z-indexを高くする */}
+                      <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors z-10">
+                         <Camera size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity"/>
+                         <input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} />
+                      </label>
                     </div>
                     <div className="flex-1 space-y-3">
                       <InputField label="お名前">
@@ -772,9 +839,9 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                     <div key={i} className="flex gap-4 p-4 bg-slate-50 rounded-[1.5rem] relative border border-slate-100">
                       <div className="relative w-20 h-20 bg-white rounded-2xl overflow-hidden shrink-0 border border-slate-100 shadow-sm group">
                         {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-6 text-slate-300"/>}
-                        <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer transition-colors"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'profile', i)} /></label>
+                        <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer transition-colors z-10"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'profile', i)} /></label>
                       </div>
-                      <div className="flex-1 space-y-2 pr-8"> {/* Right padding for delete button */}
+                      <div className="flex-1 space-y-2 pr-8">
                         <input className="w-full bg-white px-3 py-2 rounded-lg text-base font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder:text-slate-300" placeholder="名前" value={p.name} onChange={e => {const np=[...content.people]; np[i].name=e.target.value; handleChange({...content, people:np})}} />
                         <input className="w-full bg-white px-3 py-2 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/50 placeholder:text-slate-300" placeholder="役割" value={p.role} onChange={e => {const np=[...content.people]; np[i].role=e.target.value; handleChange({...content, people:np})}} />
                         <textarea className="w-full bg-white px-3 py-2 rounded-lg text-sm h-20 outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none placeholder:text-slate-300" placeholder="紹介文" value={p.bio} onChange={e => {const np=[...content.people]; np[i].bio=e.target.value; handleChange({...content, people:np})}} />
@@ -789,7 +856,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
               {/* === Program (Simplified DnD) === */}
               {block.type === "program" && (
                   <div className="space-y-4">
-                    {/* Note: Nested DnD is complex, using simplified array swapping for items inside block for now to keep code stable */}
                     {(content.items || []).map((item: any, i: number) => {
                       return (
                         <div key={i} className="group relative">
@@ -821,7 +887,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                             {(item.type === "song" || item.type === "break") && (
                                 <div className={`p-4 bg-slate-50 rounded-[1.5rem] relative space-y-3 border border-slate-100 ${item.isEncore ? 'ring-2 ring-pink-100 bg-pink-50/30' : ''}`}>
                                     <div className="flex gap-3 items-start">
-                                        {/* Simple Up/Down for Items to prevent DnD conflicts */}
                                         <div className="flex flex-col mt-2">
                                            <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-slate-600">↑</button>
                                            <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-slate-600">↓</button>
