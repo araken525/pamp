@@ -20,15 +20,12 @@ import {
   Coffee,
   Play,
   Pause,
-  Edit3,
   MonitorPlay,
   Share2,
   Grid,
   X,
   ChevronDown,
-  ChevronUp,
   Type,
-  List,
   Star,
   StopCircle,
   Copy,
@@ -43,8 +40,7 @@ import {
   MessageCircle,
   Settings,
   Link as LinkIcon,
-  Check,
-  Smartphone
+  GripVertical
 } from "lucide-react";
 
 import {
@@ -615,9 +611,9 @@ export default function EventEdit({ params }: Props) {
                         </button>
                      ))}
                      <div className="h-10 w-px bg-slate-800"></div>
-                     <div className="flex flex-col items-center gap-2">
-                        <NoZoomInput type="number" className="!w-16 !bg-slate-800 !border !border-slate-700 !rounded-lg !text-center !text-white !font-bold !text-sm !py-1 !px-0" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
-                        <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-full shadow-lg active:scale-95 flex items-center gap-1 hover:bg-indigo-500">
+                     <div className="flex flex-col items-center gap-1">
+                        <input type="number" className="w-16 bg-slate-800 border border-slate-700 rounded-lg text-center text-white font-bold text-sm py-1 outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-600" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
+                        <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-full shadow-lg active:scale-95 flex items-center gap-1 hover:bg-indigo-500 transition-colors">
                            <Play size={10} fill="currentColor"/> Start
                         </button>
                      </div>
@@ -653,7 +649,202 @@ export default function EventEdit({ params }: Props) {
   );
 }
 
-// --- Helper Editors ---
+// --- SUB COMPONENTS ---
+
+function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
+  return (
+    <button onClick={onClick} className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl active:scale-95 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100 ${color}`}>
+      <Icon size={24} />
+      <span className="text-[10px] font-bold text-slate-600">{label}</span>
+    </button>
+  );
+}
+
+function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, onMove, supabaseClient }: any) {
+  const [content, setContent] = useState(block.content ?? {});
+  const [isDirty, setIsDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  
+  // Drag and Drop hooks
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: block.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isExpanded ? 50 : 'auto', position: 'relative' as 'relative' };
+
+  useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
+  const handleChange = (nc: any) => { setContent(nc); setIsDirty(true); };
+
+  const handleSave = async (e?: any) => {
+    e?.stopPropagation();
+    setSaving(true);
+    try { await onSave(block.id, content); setIsDirty(false); } catch { alert("エラー"); } finally { setSaving(false); }
+  };
+
+  const handleUpload = async (e: any, target: 'single' | 'gallery' | 'profile', index?: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `uploads/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+      const { error } = await supabaseClient.storage.from("pamp-images").upload(path, file);
+      if (error) throw error;
+      const { data } = supabaseClient.storage.from("pamp-images").getPublicUrl(path);
+      if (target === 'single') handleChange({ ...content, image: data.publicUrl });
+      if (target === 'profile' && typeof index === 'number') {
+        const np = [...content.people]; np[index].image = data.publicUrl; handleChange({ ...content, people: np });
+      }
+      if (target === 'gallery') {
+         const current = content.images ?? (content.url ? [content.url] : []);
+         handleChange({ ...content, images: [...current, data.publicUrl] });
+      }
+    } catch { alert("アップロード失敗"); }
+  };
+
+  const labels: any = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", gallery: "ギャラリー", free: "フリーテキスト" };
+  const badgeColors: any = { greeting: "text-orange-500 bg-orange-50", program: "text-blue-500 bg-blue-50", profile: "text-green-500 bg-green-50", gallery: "text-pink-500 bg-pink-50", free: "text-indigo-500 bg-indigo-50" };
+  const TypeIcon = { greeting: MessageSquare, program: Music, profile: User, gallery: Grid, free: Type }[block.type as string] || Edit3;
+
+  return (
+    <div ref={setNodeRef} style={style} className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
+      <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
+        <div className="flex items-center gap-4">
+           {/* Drag Handle */}
+           {!isExpanded && (
+             <div {...attributes} {...listeners} className="p-2 text-slate-300 hover:text-indigo-500 cursor-grab active:cursor-grabbing" onClick={e=>e.stopPropagation()}>
+               <GripVertical size={20} />
+             </div>
+           )}
+           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${badgeColors[block.type] || 'bg-slate-100'}`}>
+             <TypeIcon size={20} />
+           </div>
+           <div>
+             <div className="text-sm font-bold text-slate-800">{labels[block.type]}</div>
+             {!isExpanded && <div className="text-[10px] text-slate-400 truncate max-w-[150px] mt-0.5 font-medium">
+                {block.type === 'free' ? content.title : block.type === 'greeting' ? content.author : 'タップして編集'}
+             </div>}
+           </div>
+        </div>
+        <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : 'text-slate-300'}`}><ChevronDown size={20} /></div>
+      </div>
+
+      {isExpanded && (
+        <div className="p-5 pt-0 animate-in slide-in-from-top-2 cursor-auto" onClick={e => e.stopPropagation()}>
+           <div className="py-6 space-y-6 border-t border-slate-50">
+              {block.type === "greeting" && (
+                <>
+                  <div className="flex gap-4">
+                    <div className="relative w-24 h-24 bg-slate-100 rounded-2xl overflow-hidden shrink-0 border border-slate-200 group">
+                      {content.image ? <img src={content.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-8 text-slate-300"/>}
+                      <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors z-10"><Camera size={20} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} /></label>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <InputField label="お名前"><NoZoomInput placeholder="氏名" value={content.author||""} onChange={e => handleChange({...content, author: e.target.value})} /></InputField>
+                      <InputField label="肩書き"><NoZoomInput placeholder="例: 主催者" value={content.role||""} onChange={e => handleChange({...content, role: e.target.value})} /></InputField>
+                    </div>
+                  </div>
+                  <InputField label="挨拶文"><NoZoomTextArea className="h-40" placeholder="本文..." value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
+                </>
+              )}
+              {block.type === "free" && (
+                  <>
+                    <InputField label="タイトル"><NoZoomInput placeholder="タイトル" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
+                    <InputField label="本文"><NoZoomTextArea className="h-40" placeholder="本文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
+                  </>
+              )}
+              {block.type === "gallery" && (
+                  <>
+                    <InputField label="タイトル"><NoZoomInput placeholder="Memories" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(content.images || (content.url ? [content.url] : [])).map((url:string, i:number) => (
+                          <div key={i} className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                            <img src={url} className="w-full h-full object-cover" alt="" />
+                            <button onClick={() => handleChange({...content, images: (content.images||[content.url]).filter((_:any,idx:number)=>idx!==i)})} className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1.5"><X size={12}/></button>
+                          </div>
+                       ))}
+                       <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 cursor-pointer"><Plus /><input type="file" className="hidden" accept="image/*" onChange={e => handleUpload(e, 'gallery')} /></label>
+                    </div>
+                    <InputField label="キャプション"><NoZoomInput placeholder="説明..." value={content.caption||""} onChange={e => handleChange({...content, caption: e.target.value})} /></InputField>
+                  </>
+              )}
+              
+              {/* PROFILE */}
+              {block.type === "profile" && (
+                <div className="space-y-4">
+                  {(content.people || []).map((p: any, i: number) => (
+                    <ProfileEditor key={i} p={p} 
+                      onChange={(newP:any) => {const np=[...content.people]; np[i]=newP; handleChange({...content, people:np})}}
+                      onDelete={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})}
+                      onUpload={(e:any) => handleUpload(e, 'profile', i)}
+                    />
+                  ))}
+                  <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:"", sns:{}}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm">+ 出演者を追加</button>
+                </div>
+              )}
+
+              {/* PROGRAM */}
+              {block.type === "program" && (
+                  <div className="space-y-4">
+                    {(content.items || []).map((item: any, i: number) => (
+                        <div key={i} className="group relative">
+                            {/* Section */}
+                            {item.type === "section" && (
+                              <div className="flex gap-2 items-center mt-6 mb-2">
+                                <div className="flex flex-col gap-1 mr-1">
+                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowUp size={14}/></button>
+                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowDown size={14}/></button>
+                                </div>
+                                <div className="flex-1 border-b border-indigo-200"><NoZoomInput className="!bg-transparent !py-2 text-indigo-700 font-bold text-sm !border-none !ring-0 !px-0" placeholder="セクション見出し" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
+                                <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                              </div>
+                            )}
+                            
+                            {/* Memo */}
+                            {item.type === "memo" && (
+                              <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2 items-center">
+                                 <div className="flex flex-col gap-1 mr-1">
+                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowUp size={12}/></button>
+                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowDown size={12}/></button>
+                                 </div>
+                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0 !placeholder-yellow-400/50" rows={1} placeholder="メモを入力..." value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
+                                 <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
+                              </div>
+                            )}
+
+                            {/* Song / Break Item */}
+                            {(item.type === "song" || item.type === "break") && (
+                                <ProgramItemEditor 
+                                  item={item} 
+                                  index={i} 
+                                  total={content.items.length}
+                                  onChange={(newItem:any) => {const ni=[...content.items]; ni[i]=newItem; handleChange({...content, items:ni})}}
+                                  onDelete={() => {const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni})}}
+                                  onMove={(dir: 'up'|'down') => {
+                                     const ni=[...content.items];
+                                     const to = dir==='up' ? i-1 : i+1;
+                                     if(to>=0 && to<ni.length) { [ni[i],ni[to]]=[ni[to],ni[i]]; handleChange({...content, items:ni}); }
+                                  }}
+                                />
+                            )}
+                        </div>
+                    ))}
+                    
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"song",title:"",composer:"",performer:"",description:"",isEncore:false}]})} className="py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-indigo-100">+ 曲</button>
+                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"break",title:"休憩",duration:"15分"}]})} className="py-3 bg-slate-100 text-slate-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-slate-200">+ 休憩</button>
+                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"section",title:"新しいセクション"}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ 見出し</button>
+                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"memo",title:""}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ メモ</button>
+                    </div>
+                  </div>
+              )}
+           </div>
+           
+           <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+             <button onClick={() => onDelete(block.id)} className="text-red-400 hover:text-red-600 p-2 text-xs font-bold flex items-center gap-1"><Trash2 size={16}/> 削除</button>
+             {isDirty && (<button onClick={handleSave} disabled={saving} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all hover:bg-slate-800">{saving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} 保存</button>)}
+           </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
   const [open, setOpen] = useState(false);
