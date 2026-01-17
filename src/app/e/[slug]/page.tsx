@@ -1,638 +1,508 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
+import { 
+  motion, 
+  useScroll, 
+  useTransform, 
+  AnimatePresence,
+  useInView
+} from "framer-motion";
 import {
-  Calendar,
   MapPin,
   Coffee,
   ChevronDown,
-  User,
   Sparkles,
   Music,
   Loader2,
+  Clock,
+  Wind
 } from "lucide-react";
+import { Cinzel, Zen_Old_Mincho, Cormorant_Garamond } from 'next/font/google';
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-// ▼ Supabaseクライアント
+// --- Fonts ---
+const cinzel = Cinzel({ subsets: ["latin"], weight: ["400", "700"] });
+const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "600", "700"], style: ["normal", "italic"] });
+const mincho = Zen_Old_Mincho({ subsets: ["latin"], weight: ["400", "700", "900"] });
+
+// --- Utils ---
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// ---- helpers ----
-function safeParseTheme(raw: any) {
-  if (!raw) return null;
-  if (typeof raw === "object") return raw;
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-// デザイン設定（クラシック・紙 + リッチエフェクト）
-function varCss(palette: any) {
-  const p = palette ?? {};
-  const accent = p.accent ?? "#B48E55"; // 金・茶系
-  
-  return `
-:root {
-  --bg: #F5F2E8;
-  --card: #F5F2E8;
-  --text: #2C241B;
-  --muted: #8c8273;
-  --accent: ${accent};
-  --border: #E6DCC3;
-  
-  /* 演奏中モード（ダーク） */
-  --theater-bg: #1a1614;
-  --theater-text: #e6e0d4;
-  --theater-card: #2c241f;
-  --theater-border: rgba(255,255,255,0.1);
-}
-
-[data-theater-mode="true"] {
-  --bg: var(--theater-bg) !important;
-  --text: var(--theater-text) !important;
-  --card: var(--theater-card) !important;
-  --border: var(--theater-border) !important;
-}
-
-/* アニメーション定義 */
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes breathe {
-  0%, 100% { opacity: 0.8; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.05); text-shadow: 0 0 10px var(--accent); }
-}
-@keyframes goldPulse {
-  0%, 100% { box-shadow: 0 0 0px var(--accent); }
-  50% { box-shadow: 0 0 20px var(--accent); }
-}
-@keyframes firefly {
-  0%, 100% { opacity: 0.5; transform: translate(0, 0) scale(1); }
-  50% { opacity: 1; transform: translate(2px, -2px) scale(1.2); }
-}
-
-.animate-enter {
-  animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-.animate-breathe {
-  animation: breathe 3s ease-in-out infinite;
-}
-.animate-firefly {
-  animation: firefly 2s ease-in-out infinite;
-}
-
-.bg-paper-texture {
-  background-image: url("https://www.transparenttextures.com/patterns/cream-paper.png");
-  background-attachment: fixed;
-}
-
-/* 隠しスクロールバー */
-.scrollbar-hide::-webkit-scrollbar {
-    display: none;
-}
-.scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-`;
+// --- Theme Config ---
+function getThemeColors(palette: any) {
+  const accent = palette?.accent ?? "#B48E55"; // Classic Gold
+  return {
+    "--bg": "#F9F8F2", // 非常に淡いクリーム
+    "--text": "#2A2A2A", // 墨色
+    "--accent": accent,
+    "--muted": "#888888",
+    "--line": "#E5E5E5",
+    // Dark Mode (Live)
+    "--live-bg": "#0F172A", // Midnight Blue
+    "--live-text": "#E2E8F0",
+    "--live-accent": "#FCD34D", // Bright Gold
+    "--live-line": "#334155",
+  } as React.CSSProperties;
 }
 
 type Props = { params: Promise<{ slug: string }> };
 
 export default function EventViewer({ params }: Props) {
   const { slug } = use(params);
-
   const [event, setEvent] = useState<any>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [theaterMode, setTheaterMode] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
 
-  // ---- Load + Realtime ----
+  // Load Data
   useEffect(() => {
     let channel: any;
-
-    async function run() {
+    async function init() {
       setLoading(true);
-
-      const { data: e, error: eErr } = await supabase
-        .from("events")
-        .select("*")
-        .eq("slug", slug)
-        .single();
-
-      if (eErr || !e) {
-        setLoading(false);
-        setEvent(null);
-        return;
-      }
+      const { data: e } = await supabase.from("events").select("*").eq("slug", slug).single();
+      if (!e) { setLoading(false); return; }
       setEvent(e);
 
       const fetchBlocks = async () => {
-        const { data: b } = await supabase
-          .from("blocks")
-          .select("*")
-          .eq("event_id", e.id)
-          .order("sort_order", { ascending: true });
+        const { data: b } = await supabase.from("blocks").select("*").eq("event_id", e.id).order("sort_order", { ascending: true });
         setBlocks(b ?? []);
       };
       await fetchBlocks();
       setLoading(false);
 
-      channel = supabase
-        .channel("viewer-updates")
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${e.id}` },
-          (payload) => setEvent((prev: any) => ({ ...(prev ?? {}), ...(payload.new ?? {}) }))
-        )
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "blocks", filter: `event_id=eq.${e.id}` },
-          () => fetchBlocks()
-        )
-        .subscribe();
+      channel = supabase.channel("viewer").on("postgres_changes", { event: "*", schema: "public", table: "events" }, (payload: any) => {
+         if (payload.new.id === e.id) setEvent(payload.new);
+      }).on("postgres_changes", { event: "*", schema: "public", table: "blocks" }, () => fetchBlocks()).subscribe();
     }
-    run();
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
+    init();
+    return () => { if (channel) supabase.removeChannel(channel); };
   }, [slug]);
 
-  const theme = useMemo(() => safeParseTheme(event?.theme) ?? {}, [event?.theme]);
-  const cssVars = useMemo(() => varCss(theme.palette), [theme]);
+  const cssVars = useMemo(() => getThemeColors(event?.theme?.palette), [event]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F2E8] text-[#B48E55]">
-        <Loader2 className="animate-spin" size={32} />
-      </div>
-    );
-  }
+  if (loading) return <LoadingScreen />;
   if (!event) return notFound();
 
-  const fontFamily = `"Times New Roman", "Noto Serif JP", "Hiragino Mincho ProN", serif`;
-
   return (
-    <div
-      className="min-h-screen overflow-x-hidden transition-colors duration-700 ease-in-out bg-paper-texture"
-      data-theater-mode={theaterMode}
-      style={{
-        backgroundColor: "var(--bg)",
-        color: "var(--text)",
-        fontFamily,
-      }}
+    <div 
+      className={cn(
+        "min-h-screen transition-colors duration-1000 ease-in-out selection:bg-accent/20",
+        mincho.className,
+        liveMode ? "bg-[var(--live-bg)] text-[var(--live-text)]" : "bg-[var(--bg)] text-[var(--text)]"
+      )}
+      style={cssVars}
     >
-      <style>{cssVars + (theme.custom_css ?? "")}</style>
-
-      {/* Mode Toggle */}
-      <div className="fixed top-4 right-4 z-50">
-        <button
-          onClick={() => setTheaterMode(!theaterMode)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md border transition-all shadow-lg active:scale-95 duration-500 ${
-            theaterMode 
-              ? "bg-[var(--accent)]/20 text-[var(--accent)] border-[var(--accent)]/50 shadow-[0_0_15px_var(--accent)]" 
-              : "bg-white/40 text-[var(--text)] border-[var(--border)]"
-          }`}
+      {/* Texture Overlay */}
+      <div className="fixed inset-0 pointer-events-none opacity-[0.03] z-50 mix-blend-multiply" style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
+      
+      {/* Floating Controls */}
+      <nav className="fixed top-6 right-6 z-50 flex items-center gap-3 mix-blend-difference text-white">
+        <button 
+          onClick={() => setLiveMode(!liveMode)}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 rounded-full backdrop-blur-xl border transition-all duration-500 shadow-2xl",
+            liveMode 
+              ? "bg-white/10 border-white/20 text-yellow-200 shadow-[0_0_30px_rgba(253,224,71,0.2)]" 
+              : "bg-black/10 border-white/10 text-white/80 hover:bg-black/20"
+          )}
         >
-          <Music size={14} className={theaterMode ? "animate-firefly" : ""} />
-          <span className="text-[10px] font-bold tracking-wider uppercase">
-            {theaterMode ? "演奏中モード" : "通常モード"}
+          <Music size={14} className={liveMode ? "animate-pulse" : ""} />
+          <span className={cn("text-[10px] tracking-widest font-bold uppercase", cinzel.className)}>
+            {liveMode ? "Live Mode" : "Program"}
           </span>
         </button>
-      </div>
+      </nav>
 
-      {/* HERO */}
-      <div className="animate-enter">
-        <HeroFixed event={event} />
-      </div>
-
-      {/* CONTENT */}
-      <main className="mx-auto max-w-3xl px-5 py-12 space-y-16 pb-40">
+      {/* Main Content */}
+      <Hero event={event} liveMode={liveMode} />
+      
+      <main className="max-w-4xl mx-auto px-6 pb-40 space-y-32 relative z-10">
         {blocks.map((block, i) => (
-          <div
-            key={block.id}
-            className="animate-enter"
-            style={{ animationDelay: `${(i + 1) * 100}ms` }}
-          >
-            <BlockViewFixed
-              block={block}
-              encoreRevealed={event.encore_revealed}
-            />
-          </div>
+          <BlockRenderer 
+            key={block.id} 
+            block={block} 
+            index={i} 
+            encoreRevealed={event.encore_revealed} 
+            liveMode={liveMode}
+          />
         ))}
       </main>
 
-      {/* FOOTER */}
-      <footer className="py-12 text-center space-y-2 opacity-40 mix-blend-multiply dark:mix-blend-screen">
-        <div className="w-12 h-[1px] bg-current mx-auto mb-4 opacity-50"></div>
-        <div className="text-[10px] font-bold tracking-[0.2em] uppercase">
-          Digital Program
-        </div>
-        <div className="text-[10px]">
-          © {new Date().getFullYear()} {event.title}
-        </div>
-      </footer>
+      <Footer event={event} />
     </div>
   );
 }
 
-// ---------------- UI COMPONENTS ----------------
+// ------------------------------------------------------------------
+// COMPONENTS
+// ------------------------------------------------------------------
 
-function SectionTitle({ title, subtitle }: any) {
+function LoadingScreen() {
   return (
-    <div className="flex items-center justify-center gap-4 mb-8 opacity-90">
-      <div className="h-[1px] w-8 bg-[var(--accent)]/50" />
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-[var(--accent)]">{title}</h2>
-        <span className="text-[10px] tracking-[0.3em] uppercase opacity-60 block mt-1">{subtitle}</span>
+    <div className="fixed inset-0 flex items-center justify-center bg-[#F9F8F2] z-[9999]">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="animate-spin text-[#B48E55]" size={30} />
+        <span className={cn("text-xs tracking-[0.3em] uppercase text-[#B48E55]", cinzel.className)}>Loading</span>
       </div>
-      <div className="h-[1px] w-8 bg-[var(--accent)]/50" />
     </div>
   );
 }
 
-function HeroFixed({ event }: any) {
-  return (
-    <header className="relative w-full aspect-[3/4] md:aspect-[21/9] overflow-hidden">
-      {event.cover_image ? (
-        <>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={event.cover_image}
-            alt="Cover"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-          {/* Paper Blend Gradient Mask */}
-          <div
-            className="absolute inset-0"
-            style={{ 
-              background: "linear-gradient(to bottom, rgba(0,0,0,0) 50%, var(--bg) 100%)",
-              mixBlendMode: "normal"
-            }}
-          />
-        </>
-      ) : (
-        <div className="w-full h-full bg-zinc-100 flex items-center justify-center">
-           <div className="text-center opacity-30 p-10">
-              <div className="text-4xl font-serif mb-4 tracking-widest">{event.title}</div>
-              <div className="w-16 h-[1px] bg-current mx-auto"></div>
-           </div>
-        </div>
-      )}
+function Hero({ event, liveMode }: any) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], ["0%", "50%"]);
+  const opacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
 
-      <div className="absolute inset-x-0 bottom-0 p-8 pb-12 flex flex-col items-center text-center z-10">
-        <div className="px-6 py-1.5 border-[0.5px] border-[var(--text)]/30 backdrop-blur-md bg-white/10 mb-8 rounded-sm shadow-sm">
-          <span className="text-[10px] font-medium tracking-[0.3em] uppercase text-[var(--text)] opacity-90">
+  return (
+    <motion.header 
+      ref={ref}
+      className="relative h-[90vh] w-full overflow-hidden flex flex-col items-center justify-center text-center px-6 mb-20"
+    >
+      {/* Background Image with Parallax */}
+      <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
+        {event.cover_image ? (
+          <img src={event.cover_image} className="w-full h-full object-cover" alt="cover" />
+        ) : (
+          <div className="w-full h-full bg-stone-200" />
+        )}
+        <div className={cn(
+          "absolute inset-0 transition-colors duration-1000",
+          liveMode ? "bg-slate-900/80" : "bg-black/20"
+        )} />
+        <div className={cn(
+          "absolute inset-0 bg-gradient-to-t via-transparent to-transparent",
+          liveMode ? "from-[var(--live-bg)]" : "from-[var(--bg)]"
+        )} />
+      </motion.div>
+
+      {/* Content */}
+      <div className="relative z-10 text-white space-y-8 max-w-3xl">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          transition={{ duration: 1, delay: 0.2 }}
+          className="inline-block border-t border-b border-white/30 py-2 px-6 backdrop-blur-sm"
+        >
+          <span className={cn("text-xs md:text-sm tracking-[0.4em] uppercase font-bold", cinzel.className)}>
             Concert Program
           </span>
-        </div>
-        
-        <h1 className="text-3xl md:text-5xl font-medium leading-tight tracking-tight drop-shadow-sm mb-4 text-[var(--text)] break-words w-full max-w-2xl">
+        </motion.div>
+
+        <motion.h1 
+          initial={{ opacity: 0, scale: 0.95 }} 
+          animate={{ opacity: 1, scale: 1 }} 
+          transition={{ duration: 1, delay: 0.4 }}
+          className={cn("text-4xl md:text-7xl font-bold leading-tight drop-shadow-lg", mincho.className)}
+        >
           {event.title}
-        </h1>
-        
-        <div className="flex flex-col items-center gap-2 text-sm text-[var(--text)]/80">
+        </motion.h1>
+
+        <motion.div 
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          transition={{ duration: 1, delay: 0.8 }}
+          className="flex flex-col items-center gap-3 text-sm md:text-base font-light tracking-wider opacity-90"
+        >
           {event.date && (
-             <div className="flex items-center gap-2">
-               <span className="w-6 h-[1px] bg-[var(--accent)]"></span>
-               <span>{event.date}</span>
-               <span className="w-6 h-[1px] bg-[var(--accent)]"></span>
-             </div>
-          )}
-          {event.location && (
-            <div className="text-xs tracking-wider uppercase opacity-70 mt-1">
-              <MapPin size={12} className="inline mr-1 mb-0.5"/>
-              {event.location}
+            <div className="flex items-center gap-3">
+              <span className="w-8 h-px bg-white/50"></span>
+              <span className={cormorant.className}>{new Date(event.date).toLocaleDateString()}</span>
+              <span className="w-8 h-px bg-white/50"></span>
             </div>
           )}
-        </div>
+          {event.location && (
+            <div className="flex items-center gap-1.5 text-xs uppercase tracking-widest">
+              <MapPin size={12} /> {event.location}
+            </div>
+          )}
+        </motion.div>
       </div>
-    </header>
+
+      <motion.div 
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5, duration: 1 }}
+        className="absolute bottom-12 left-1/2 -translate-x-1/2 text-white/50 flex flex-col items-center gap-2"
+      >
+        <span className={cn("text-[10px] tracking-widest uppercase", cinzel.className)}>Scroll</span>
+        <div className="w-px h-12 bg-gradient-to-b from-white to-transparent" />
+      </motion.div>
+    </motion.header>
   );
 }
 
-function BlockViewFixed({ block, encoreRevealed }: any) {
-  const type = block.type;
-  const content = block.content ?? {};
+function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
+  const content = block.content || {};
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, margin: "-100px" });
 
-  // --- Greeting ---
-  if (type === "greeting") {
-    if (!content.text) return null;
-    return (
-      <div className="py-4">
-        <SectionTitle title="ご挨拶" subtitle="Greeting" />
-        <div className="flex flex-col md:flex-row gap-6 items-start">
-           {content.image && (
-             <div className="shrink-0 mx-auto md:mx-0">
-                <div className="w-32 h-40 bg-[var(--muted)]/10 rounded-sm overflow-hidden border border-[var(--border)] shadow-md rotate-1">
-                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                   <img src={content.image} className="w-full h-full object-cover" alt="Speaker"/>
-                </div>
-             </div>
-           )}
-           <div className="flex-1 w-full">
-              {(content.author || content.role) && (
-                <div className="mb-4 text-center md:text-left">
-                   <div className="text-sm font-bold tracking-widest">{content.author}</div>
-                   <div className="text-[10px] opacity-60 uppercase tracking-widest mt-1">{content.role}</div>
-                </div>
-              )}
-              <div className="h-[1px] w-full bg-[var(--border)] mb-4 opacity-50"/>
-              <p className="text-[15px] leading-8 text-justify whitespace-pre-wrap opacity-90 font-serif">
+  const Wrapper = ({ children, className }: any) => (
+    <motion.section
+      ref={ref}
+      initial={{ opacity: 0, y: 30 }}
+      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
+      transition={{ duration: 0.8, ease: "easeOut" }}
+      className={cn("w-full", className)}
+    >
+      {children}
+    </motion.section>
+  );
+
+  switch (block.type) {
+    case "greeting":
+      return (
+        <Wrapper>
+          <SectionHeader title="Greeting" subtitle="ご挨拶" />
+          <div className="flex flex-col md:flex-row gap-12 items-center">
+            {content.image && (
+              <div className="shrink-0 w-full md:w-1/3 aspect-[3/4] relative">
+                <div className="absolute inset-0 border border-[var(--text)] opacity-20 translate-x-3 translate-y-3"></div>
+                <img src={content.image} className="w-full h-full object-cover grayscale-[20%]" alt="Speaker" />
+              </div>
+            )}
+            <div className="flex-1 space-y-8 text-center md:text-left">
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold tracking-widest">{content.author}</h3>
+                <p className={cn("text-sm opacity-60 uppercase tracking-widest", cinzel.className)}>{content.role}</p>
+              </div>
+              <p className="text-base md:text-lg leading-loose text-justify opacity-80 whitespace-pre-wrap font-serif">
                 {content.text}
               </p>
-              <div className="h-[1px] w-full bg-[var(--border)] mt-4 opacity-50"/>
-           </div>
-        </div>
-      </div>
-    );
-  }
+            </div>
+          </div>
+        </Wrapper>
+      );
 
-  // --- Free Topic ---
-  if (type === "free") {
-    if (!content.text && !content.title) return null;
-    return (
-      <div className="py-4">
-        <SectionTitle title={content.title || "Information"} subtitle="Topic" />
-        <div className="px-4">
-           <p className="text-[15px] leading-8 text-justify whitespace-pre-wrap opacity-90 font-serif">
-             {content.text}
-           </p>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Gallery (横スライド) ---
-  if (type === "gallery") {
-    const images = content.images ?? (content.url ? [content.url] : []);
-    if (!images.length) return null;
-
-    return (
-      <div className="py-4 overflow-hidden -mx-5 px-5"> {/* 画面端まで広げる */}
-        {content.title && <SectionTitle title={content.title} subtitle="Gallery" />}
-        
-        {/* 横スクロールコンテナ */}
-        <div className="flex overflow-x-auto gap-6 pb-8 snap-x snap-mandatory scrollbar-hide px-4">
-          {images.map((url: string, idx: number) => (
-             <div key={idx} className="shrink-0 snap-center first:pl-4 last:pr-4">
-               <figure className="relative w-64 md:w-80 aspect-[4/3] overflow-hidden bg-white p-2 shadow-lg rotate-1 even:-rotate-1 border border-gray-100">
-                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                 <img src={url} alt="" className="w-full h-full object-cover" />
-                 {idx === images.length - 1 && content.caption && (
-                   <div className="absolute bottom-2 left-0 right-0 text-center">
-                     <span className="bg-white/80 px-2 py-1 text-[10px] tracking-wider italic text-black">
-                       {content.caption}
-                     </span>
-                   </div>
-                 )}
-               </figure>
+    case "program":
+      return (
+        <Wrapper>
+          <SectionHeader title="Program" subtitle="プログラム" />
+          <div className="relative border-l border-[var(--line)] ml-4 md:ml-0 md:border-l-0">
+             {/* Timeline Line for Desktop */}
+             <div className="hidden md:block absolute left-1/2 top-0 bottom-0 w-px bg-[var(--line)] -translate-x-1/2"></div>
+             
+             <div className="space-y-12">
+                {(content.items || []).map((item: any, i: number) => (
+                  <ProgramItem key={i} item={item} index={i} encoreRevealed={encoreRevealed} liveMode={liveMode} />
+                ))}
              </div>
-          ))}
-        </div>
-      </div>
-    );
+          </div>
+        </Wrapper>
+      );
+
+    case "profile":
+      return (
+        <Wrapper>
+          <SectionHeader title="Artists" subtitle="出演者" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-20">
+            {(content.people || []).map((p: any, i: number) => (
+              <ProfileItem key={i} p={p} />
+            ))}
+          </div>
+        </Wrapper>
+      );
+
+    case "gallery":
+      return (
+        <Wrapper className="!max-w-none w-screen relative left-1/2 -translate-x-1/2">
+          <div className="max-w-4xl mx-auto px-6 mb-10"><SectionHeader title="Gallery" subtitle="ギャラリー" /></div>
+          <div className="flex overflow-x-auto gap-8 px-6 md:px-[20vw] pb-16 snap-x snap-mandatory scrollbar-hide">
+            {(content.images || []).map((url: string, i: number) => (
+              <div key={i} className="shrink-0 snap-center relative">
+                <div className="w-[80vw] md:w-[400px] aspect-[4/3] bg-white p-3 shadow-2xl rotate-1 even:-rotate-1 transition-transform hover:rotate-0 hover:scale-105 duration-500">
+                  <img src={url} className="w-full h-full object-cover" alt="" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Wrapper>
+      );
+
+    case "free":
+      return (
+        <Wrapper>
+          <SectionHeader title={content.title || "Information"} subtitle="お知らせ" />
+          <div className="max-w-2xl mx-auto text-center">
+            <p className="text-base leading-loose whitespace-pre-wrap opacity-90">{content.text}</p>
+          </div>
+        </Wrapper>
+      );
+
+    default: return null;
   }
-
-  // --- Profile (Accordion) ---
-  if (type === "profile") {
-    const people = content.people ?? [];
-    if (!people.length) return null;
-
-    return (
-      <div>
-        <SectionTitle title="出演者" subtitle="Artists" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {people.map((p: any, i: number) => (
-            <ProfileCard key={i} p={p} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // --- Program ---
-  if (type === "program") {
-    const items = content.items ?? [];
-    if (!items.length) return null;
-
-    return (
-      <div>
-        <SectionTitle title="プログラム" subtitle="Program" />
-        <div className="space-y-1">
-          {items.map((it: any, idx: number) => (
-            <ProgramItemFixed
-              key={idx}
-              item={it}
-              encoreRevealed={encoreRevealed}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return null;
 }
 
-// プロフィールアコーディオン
-function ProfileCard({ p }: any) {
-  const [open, setOpen] = useState(false);
+// ------------------------------------------------------------------
+// SUB COMPONENTS
+// ------------------------------------------------------------------
 
+function SectionHeader({ title, subtitle }: { title: string, subtitle: string }) {
   return (
-    <div className="flex flex-col bg-[var(--card)] border border-[var(--border)] shadow-sm overflow-hidden group">
-      {/* 画像がある場合のみ表示 */}
-      {p.image && (
-        <div className="relative w-full aspect-[4/3] overflow-hidden bg-gray-100">
-           {/* eslint-disable-next-line @next/next/no-img-element */}
-           <img src={p.image} alt={p.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-        </div>
-      )}
-      
-      <div 
-        className="p-5 flex-1 flex flex-col justify-center text-center cursor-pointer hover:bg-[var(--accent)]/5 transition-colors"
-        onClick={() => setOpen(!open)}
-      >
-        <h3 className="text-lg font-bold text-[var(--accent)] flex items-center justify-center gap-2">
-          {p.name}
-          <ChevronDown size={14} className={`transition-transform duration-300 ${open ? "rotate-180" : ""}`}/>
-        </h3>
-        <div className="text-[10px] font-bold tracking-[0.2em] uppercase opacity-50 mb-1">
-          {p.role}
-        </div>
-
-        {/* Accordion Content */}
-        <div className={`grid transition-all duration-500 ease-in-out ${open ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0"}`}>
-          <div className="overflow-hidden">
-             {p.bio && (
-               <p className="text-sm leading-7 opacity-80 whitespace-pre-wrap text-justify border-t border-[var(--border)] pt-4">
-                 {p.bio}
-               </p>
-             )}
-          </div>
-        </div>
+    <div className="text-center mb-16 space-y-2">
+      <h2 className={cn("text-3xl md:text-4xl font-normal tracking-wider text-[var(--accent)]", cinzel.className)}>
+        {title}
+      </h2>
+      <div className="flex items-center justify-center gap-3 opacity-40">
+        <div className="h-px w-8 bg-current"></div>
+        <span className="text-xs tracking-[0.2em]">{subtitle}</span>
+        <div className="h-px w-8 bg-current"></div>
       </div>
     </div>
   );
 }
 
-// アイテム描画（セクション・メモ・休憩・曲）
-function ProgramItemFixed({ item, encoreRevealed }: any) {
-  const [open, setOpen] = useState(false);
-  
-  // --- Section (アンティーク仕切り) ---
-  if (item.type === "section") {
+function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
+  const isBreak = item.type === "break";
+  const isSection = item.type === "section";
+  const active = item.active === true;
+
+  if (item.isEncore && !encoreRevealed) return null;
+
+  // --- Section ---
+  if (isSection) {
     return (
-      <div className="pt-12 pb-8 flex items-center justify-center animate-enter">
-        <div className="h-[1px] w-12 bg-[var(--accent)] opacity-40 border-t border-b border-[var(--accent)] h-1" />
-        <h3 className="mx-6 text-lg font-bold text-[var(--accent)] tracking-[0.2em] uppercase font-serif text-center">
-          {item.title}
-        </h3>
-        <div className="h-[1px] w-12 bg-[var(--accent)] opacity-40 border-t border-b border-[var(--accent)] h-1" />
+      <div className="py-12 flex items-center justify-center relative z-10">
+        <div className="bg-[var(--bg)] px-6 py-2 border-y border-[var(--accent)] text-[var(--accent)] transition-colors duration-1000">
+          <span className="text-sm font-bold tracking-[0.3em] uppercase">{item.title}</span>
+        </div>
       </div>
     );
   }
 
-  // --- Memo (手書き風注釈) ---
+  // --- Memo ---
   if (item.type === "memo") {
     return (
-      <div className="py-2 text-center animate-enter">
-        <span className="text-sm opacity-60 tracking-wider font-serif italic text-[var(--muted)]">
-          * {item.title}
-        </span>
+      <div className="flex justify-center py-2 opacity-60">
+        <span className={cn("text-xs italic tracking-wider", cormorant.className)}>{item.title}</span>
       </div>
     );
   }
-  
-  // Encore Check
-  if (item.isEncore && !encoreRevealed) return null;
-  
-  const isBreak = item.type === "break";
-  const active = item.active === true;
-  
-  // 休憩タイマー（ブレスアニメーション）
-  const TimerDisplay = () => {
-    const [timeLeft, setTimeLeft] = useState<string | null>(null);
 
-    useEffect(() => {
-      if (!item.timerEnd) return;
-      const interval = setInterval(() => {
-        const end = new Date(item.timerEnd).getTime();
-        const now = new Date().getTime();
-        const diff = end - now;
-
-        if (diff <= 0) {
-           setTimeLeft(null); 
-           clearInterval(interval);
-        } else {
-           const m = Math.floor(diff / 60000);
-           const s = Math.floor((diff % 60000) / 1000);
-           setTimeLeft(`${m}:${s.toString().padStart(2, "0")}`);
-        }
-      }, 1000);
-      return () => clearInterval(interval);
-    }, []);
-
-    if (!timeLeft) return <span className="text-[10px]">{item.duration}</span>;
-
-    return (
-      <div className="flex flex-col items-center animate-breathe">
-         <div className="text-[10px] font-bold text-[var(--accent)] mb-1">再開まで</div>
-         <div className="text-2xl font-bold font-mono tracking-widest text-[var(--accent)] drop-shadow-sm">{timeLeft}</div>
-      </div>
-    );
-  };
-
-  // --- Break (休憩) ---
+  // --- Break ---
   if (isBreak) {
     return (
-      <div className={`py-12 flex items-center justify-center gap-6 transition-all duration-1000 ${active ? 'opacity-100 scale-105' : 'opacity-60'}`}>
-        <div className="h-[1px] w-8 bg-[var(--text)] opacity-20" />
-        <div className="flex flex-col items-center gap-3 min-w-[120px]">
-          <div className={`p-2 rounded-full border border-[var(--text)]/20 ${active ? 'bg-[var(--accent)]/10 animate-pulse' : ''}`}>
-             <Coffee size={16} className="opacity-70"/>
-          </div>
-          <span className="text-sm font-bold tracking-[0.3em] uppercase">
-             休 憩
-          </span>
-          {item.timerEnd && new Date(item.timerEnd).getTime() > Date.now() ? (
-             <TimerDisplay />
-          ) : (
-             item.duration && <span className="text-[10px] font-serif italic opacity-60">{item.duration}</span>
-          )}
-        </div>
-        <div className="h-[1px] w-8 bg-[var(--text)] opacity-20" />
+      <div className={cn(
+        "py-10 flex flex-col items-center justify-center gap-3 transition-all duration-700",
+        active ? "opacity-100 scale-110" : "opacity-50"
+      )}>
+        <Coffee size={20} className={active ? "text-[var(--accent)] animate-bounce" : ""} />
+        <span className="text-xs font-bold tracking-[0.2em] uppercase">休 憩</span>
+        
+        {item.timerEnd && new Date(item.timerEnd).getTime() > Date.now() ? (
+           <Countdown target={item.timerEnd} />
+        ) : (
+           <span className={cn("text-xl italic", cormorant.className)}>{item.duration}</span>
+        )}
       </div>
     );
   }
 
-  // --- Song (曲・リッチエフェクト) ---
+  // --- Song ---
   return (
-    <div className={`group transition-all duration-700`}>
-      <div 
-        onClick={() => setOpen(!open)}
-        className={`cursor-pointer py-5 px-4 rounded-sm transition-all duration-700
-          ${active 
-            ? "bg-gradient-to-r from-[var(--accent)]/10 via-[var(--accent)]/5 to-transparent border-l-2 border-[var(--accent)] shadow-[0_0_30px_rgba(180,142,85,0.1)]" 
-            : "hover:bg-[var(--accent)]/5 border-l-2 border-transparent"
-          }`}
-      >
-        <div className="flex items-baseline gap-4">
-          {/* Active Dot / Number */}
-          <div className={`w-1.5 h-1.5 rounded-full shrink-0 transform translate-y-[-2px] transition-all duration-500
-            ${active ? "bg-[var(--accent)] animate-firefly shadow-[0_0_8px_var(--accent)] scale-125" : "bg-[var(--accent)]/40"}`} 
-          />
-          
-          <div className="flex-1">
-             <div className="flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
-               <h3 className={`text-lg font-medium leading-snug transition-all duration-700
-                 ${active ? "text-[var(--accent)] font-bold drop-shadow-[0_0_10px_rgba(180,142,85,0.3)] scale-[1.02] origin-left" : "text-[var(--text)]"}
-               `}>
-                 {item.title}
-               </h3>
-               
-               {active && (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/30 backdrop-blur-sm border border-[var(--accent)]/30 text-[9px] font-bold text-[var(--accent)] animate-pulse uppercase tracking-wider shadow-sm">
-                    <Sparkles size={10} /> 演奏中
-                  </span>
-               )}
-               {item.isEncore && (
-                 <span className="text-[10px] font-bold text-[var(--accent)] border border-[var(--accent)] px-2 py-0.5 rounded-full self-start md:self-auto opacity-80">
-                   Encore
-                 </span>
-               )}
-             </div>
-             
-             {item.composer && (
-               <div className="text-sm opacity-60 italic mt-1 font-serif">{item.composer}</div>
-             )}
-          </div>
+    <motion.div 
+      className={cn(
+        "relative flex flex-col md:flex-row items-center md:justify-between gap-4 md:gap-12 p-6 md:p-8 transition-all duration-700 rounded-sm",
+        active 
+          ? "bg-[var(--accent)]/5 border-y border-[var(--accent)]/20 shadow-[0_0_40px_-10px_rgba(var(--accent),0.1)] scale-[1.02]" 
+          : "hover:bg-[var(--text)]/5"
+      )}
+    >
+      {/* Connector Line (Mobile) */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--accent)] opacity-0 transition-opacity duration-500 md:hidden" style={{ opacity: active ? 1 : 0 }} />
 
-          <ChevronDown size={16} className={`opacity-30 transition-transform duration-500 ${open ? "rotate-180" : ""}`} />
+      <div className="flex-1 text-center md:text-left space-y-2 w-full">
+        <div className="flex items-center justify-center md:justify-start gap-3">
+          {active && <Sparkles size={14} className="text-[var(--accent)] animate-pulse" />}
+          <h3 className={cn(
+            "text-xl md:text-2xl font-medium leading-snug transition-colors duration-500",
+            active ? "text-[var(--accent)] font-bold" : ""
+          )}>
+            {item.title}
+          </h3>
+          {item.isEncore && <span className={cn("text-[10px] px-2 py-0.5 border rounded-full opacity-60", cinzel.className)}>Encore</span>}
         </div>
+        <p className={cn("text-lg opacity-60 italic", cormorant.className)}>{item.composer}</p>
+      </div>
 
-        <div className={`grid transition-all duration-500 ease-out ${open ? "grid-rows-[1fr] mt-4 opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
-          <div className="overflow-hidden">
-             <div className="pl-6 border-l border-[var(--border)] ml-2">
-               <p className="text-sm leading-7 text-justify opacity-80 whitespace-pre-wrap font-serif">
-                 {item.description || "解説はありません。"}
-               </p>
-             </div>
-          </div>
+      {/* Description (Visible if active or hover) */}
+      <div className="w-full md:w-1/3 text-sm leading-relaxed opacity-70 text-justify md:text-right font-serif">
+        {item.description}
+      </div>
+    </motion.div>
+  );
+}
+
+function Countdown({ target }: { target: string }) {
+  const [left, setLeft] = useState("");
+  useEffect(() => {
+    const i = setInterval(() => {
+      const d = new Date(target).getTime() - Date.now();
+      if (d <= 0) { setLeft(""); clearInterval(i); return; }
+      setLeft(`${Math.floor(d/60000)}:${Math.floor((d%60000)/1000).toString().padStart(2,"0")}`);
+    }, 1000);
+    return () => clearInterval(i);
+  }, [target]);
+  if(!left) return null;
+  return <div className="text-3xl font-mono font-bold text-[var(--accent)] tracking-widest animate-pulse">{left}</div>;
+}
+
+function ProfileItem({ p }: any) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-4 group">
+      <div className="relative w-full aspect-[3/4] overflow-hidden bg-stone-200">
+        {p.image ? (
+          <img src={p.image} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" alt={p.name} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center opacity-20"><User size={48}/></div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end p-6">
+           <span className="text-white text-xs tracking-widest uppercase">View Profile</span>
         </div>
       </div>
       
-      {/* Separator */}
-      {!active && <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-[var(--border)] to-transparent opacity-30 mt-1" />}
+      <div className="text-center space-y-1">
+        <h3 className="text-2xl font-bold font-serif">{p.name}</h3>
+        <p className={cn("text-xs tracking-[0.2em] uppercase opacity-50", cinzel.className)}>{p.role}</p>
+      </div>
+
+      <div className="relative">
+        <p className={cn(
+          "text-sm leading-7 text-justify opacity-80 font-serif overflow-hidden transition-all duration-500",
+          isOpen ? "max-h-[1000px]" : "max-h-[4.5em]" // 3 lines visible approx
+        )}>
+          {p.bio}
+        </p>
+        {!isOpen && p.bio && p.bio.length > 100 && (
+          <div className="absolute bottom-0 inset-x-0 h-12 bg-gradient-to-t from-[var(--bg)] to-transparent flex items-end justify-center transition-colors duration-1000">
+             <button onClick={() => setIsOpen(true)} className="text-[10px] uppercase tracking-widest opacity-60 hover:opacity-100 flex items-center gap-1 bg-[var(--bg)] px-2">
+                Read More <ChevronDown size={10}/>
+             </button>
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function Footer({ event }: any) {
+  return (
+    <footer className="py-20 text-center opacity-40 space-y-4">
+      <div className="w-px h-16 bg-current mx-auto"></div>
+      <h2 className={cn("text-2xl font-bold", mincho.className)}>{event.title}</h2>
+      <p className="text-[10px] uppercase tracking-widest">Official Digital Program</p>
+      <p className="text-[10px]">© {new Date().getFullYear()} All Rights Reserved.</p>
+    </footer>
   );
 }
