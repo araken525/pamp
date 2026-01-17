@@ -42,7 +42,9 @@ import {
   Heart,
   MessageCircle,
   Settings,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Check,
+  Smartphone
 } from "lucide-react";
 
 import {
@@ -82,10 +84,10 @@ function InputField({ label, children }: { label: string; children: React.ReactN
 
 // iPhone Zoom Prevention Input Wrapper
 function NoZoomInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`w-full bg-slate-50 px-3 py-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-slate-300 ${props.className || ''}`} />;
+  return <input {...props} className={`w-full bg-slate-50 px-3 py-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-slate-300 text-slate-800 ${props.className || ''}`} />;
 }
 function NoZoomTextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={`w-full bg-slate-50 p-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none placeholder:text-slate-300 leading-relaxed ${props.className || ''}`} />;
+  return <textarea {...props} className={`w-full bg-slate-50 p-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none placeholder:text-slate-300 text-slate-800 leading-relaxed ${props.className || ''}`} />;
 }
 
 export default function EventEdit({ params }: Props) {
@@ -116,7 +118,12 @@ export default function EventEdit({ params }: Props) {
   const [encoreRevealed, setEncoreRevealed] = useState(false);
   const [playingItemId, setPlayingItemId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [customBreakTime, setCustomBreakTime] = useState("15");
+  
+  // DnD Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -170,6 +177,20 @@ export default function EventEdit({ params }: Props) {
     ]);
   }
 
+  async function handleDragEnd(event: any) {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setBlocks((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        const updates = newItems.map((b, i) => ({ id: b.id, sort_order: (i + 1) * 10 }));
+        Promise.all(updates.map(u => supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id)));
+        return newItems;
+      });
+    }
+  }
+
   // --- Actions ---
   async function handleCoverUpload(e: any) {
     const file = e.target.files?.[0];
@@ -210,7 +231,7 @@ export default function EventEdit({ params }: Props) {
     const next = !encoreRevealed;
     setEncoreRevealed(next);
     await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
-    showMsg(next ? "アンコール公開🎉" : "アンコール非公開🔒");
+    // showMsg(next ? "アンコール公開🎉" : "アンコール非公開🔒"); // Liveモードでは邪魔なのでToast出さない
   }
 
   async function toggleActiveItem(blockId: string, itemIndex: number) {
@@ -223,7 +244,6 @@ export default function EventEdit({ params }: Props) {
     const targetId = `${blockId}-${itemIndex}`;
     const isCurrentlyActive = playingItemId === targetId;
     
-    // Toggle logic
     setPlayingItemId(isCurrentlyActive ? null : targetId);
     items.forEach((it, idx) => {
         if (idx === itemIndex) it.active = !isCurrentlyActive;
@@ -241,13 +261,11 @@ export default function EventEdit({ params }: Props) {
     let targetBlockId = null;
     let targetItemIndex = -1;
 
-    // 現在アクティブな休憩があればそれを優先
     const currentActive = getActiveItemInfo();
     if (currentActive?.item.type === "break") {
         targetBlockId = currentActive.block.id;
         targetItemIndex = currentActive.index;
     } else {
-        // なければリストから探す
         for (const b of blocks) {
             if (b.type === "program" && b.content?.items) {
                 const idx = b.content.items.findIndex((it:any) => it.type === "break");
@@ -267,16 +285,10 @@ export default function EventEdit({ params }: Props) {
     const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
     
-    // 他の項目を非アクティブに
+    // Reset others
     newItems.forEach(it => it.active = false);
     
-    newItems[targetItemIndex] = { 
-        ...newItems[targetItemIndex], 
-        timerEnd: end, 
-        duration: `${minutes}分`, 
-        active: true 
-    };
-    
+    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
     setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
     
     const newBlocks = [...blocks];
@@ -284,7 +296,6 @@ export default function EventEdit({ params }: Props) {
     setBlocks(newBlocks);
 
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
-    showMsg(`${minutes}分の休憩を開始しました⏳`);
   }
 
   async function stopBreak() {
@@ -302,7 +313,6 @@ export default function EventEdit({ params }: Props) {
     setBlocks(newBlocks);
 
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
-    showMsg("休憩を終了しました");
   }
 
   // --- Add/Edit/Delete ---
@@ -382,19 +392,28 @@ export default function EventEdit({ params }: Props) {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900" ref={pageRef}>
       
-      {/* HEADER */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex justify-between items-center safe-top shadow-sm h-14">
-        <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
-        <div className="flex gap-2">
-           <button onClick={() => setShowShareModal(true)} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors flex items-center gap-1.5">
-              <Share2 size={16}/> <span className="text-xs font-bold">配布</span>
-           </button>
-           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-900 text-white rounded-full shadow-md active:scale-95 transition-transform"><Eye size={18} /></Link>
+      {/* HEADER & TABS */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 safe-top shadow-sm">
+        <div className="flex justify-between items-center px-4 py-3 h-14">
+           <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
+           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-full active:scale-95 transition-transform"><Eye size={18} /></Link>
+        </div>
+        
+        {/* SEGMENT CONTROL (Top Tabs) */}
+        <div className="px-4 pb-3">
+           <div className="flex bg-slate-100 p-1 rounded-xl">
+              <button onClick={() => setActiveTab("edit")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "edit" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400"}`}>
+                 編集モード
+              </button>
+              <button onClick={() => setActiveTab("live")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "live" ? "bg-slate-800 text-white shadow-sm" : "text-slate-400"}`}>
+                 本番モード
+              </button>
+           </div>
         </div>
       </header>
 
       {/* TOAST */}
-      <div className={`fixed top-16 inset-x-0 flex justify-center pointer-events-none z-[60] transition-all ${msg ? 'opacity-100 translate-y-2' : 'opacity-0 -translate-y-4'}`}>
+      <div className={`fixed top-28 inset-x-0 flex justify-center pointer-events-none z-[60] transition-all ${msg ? 'opacity-100 translate-y-2' : 'opacity-0 -translate-y-4'}`}>
         {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
       </div>
 
@@ -404,7 +423,9 @@ export default function EventEdit({ params }: Props) {
            <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
               <div className="bg-slate-50 p-8 flex flex-col items-center text-center">
                  <h3 className="font-bold text-lg text-slate-800 mb-6">プログラムを配布</h3>
-                 {qrCodeData && <img src={qrCodeData} alt="QR" className="w-48 h-48 mb-6 mix-blend-multiply border rounded-xl" />}
+                 <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm mb-6">
+                    {qrCodeData && <img src={qrCodeData} alt="QR" className="w-40 h-40 mix-blend-multiply" />}
+                 </div>
                  <div className="grid grid-cols-3 gap-3 w-full">
                     <button onClick={handleShareLine} className="flex flex-col items-center gap-2 p-3 bg-[#06C755]/10 rounded-2xl hover:bg-[#06C755]/20 active:scale-95 transition-all"><div className="w-10 h-10 bg-[#06C755] rounded-full flex items-center justify-center text-white"><ExternalLink size={20}/></div><span className="text-[10px] font-bold text-slate-600">LINE</span></button>
                     <button onClick={handleCopyLink} className="flex flex-col items-center gap-2 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all"><div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-600"><Copy size={20}/></div><span className="text-[10px] font-bold text-slate-600">コピー</span></button>
@@ -419,41 +440,40 @@ export default function EventEdit({ params }: Props) {
       )}
 
       {/* MAIN CONTAINER */}
-      <main className="h-[calc(100dvh-7.5rem)] bg-slate-100 overflow-hidden">
+      <main className={`h-[calc(100dvh-7.5rem)] overflow-hidden ${activeTab==='live' ? 'bg-slate-950 text-slate-200' : 'bg-slate-50'}`}>
         
         {/* === EDIT TAB === */}
         {activeTab === "edit" && (
           <div className="h-full overflow-y-auto pb-32 p-4 space-y-6">
             
-            {/* HERO */}
-            <div className="pt-4 text-center">
-               <h2 className="text-lg font-bold text-slate-800">パンフレット編集画面</h2>
-               <div className="w-12 h-1 bg-indigo-500 rounded-full mx-auto mt-2 opacity-20"></div>
-            </div>
+            {/* DISTRIBUTE BUTTON */}
+            <button 
+              onClick={() => setShowShareModal(true)}
+              className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform"
+            >
+               <Share2 size={20}/> パンフレットを配布する
+            </button>
 
-            {/* CARD 1: COVER SETTINGS */}
+            {/* SETTINGS CARD 1 */}
             <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
                <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
                   <Settings size={18} className="text-slate-400"/>
                   <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
                </div>
-               
-               <div>
-                  <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
-                  <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
-                     {displayCover ? (
-                     // eslint-disable-next-line @next/next/no-img-element
-                     <img src={displayCover} className="w-full h-full object-cover" alt="" />
-                     ) : (
-                     <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
-                     )}
-                     <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
-                     <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
-                        {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
-                     </div>
-                     <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                     </label>
+               <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
+               <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
+                  {displayCover ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={displayCover} className="w-full h-full object-cover" alt="" />
+                  ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
+                  )}
+                  <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
+                  <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
+                     {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
                   </div>
+                  <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+                  </label>
                </div>
                {isEventDirty && (
                  <div className="flex justify-end pt-4">
@@ -462,7 +482,7 @@ export default function EventEdit({ params }: Props) {
                )}
             </section>
 
-            {/* CARD 2: ACTION SETTINGS (NEW!) */}
+            {/* SETTINGS CARD 2 */}
             <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
                <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
                   <LinkIcon size={18} className="text-slate-400"/>
@@ -471,26 +491,16 @@ export default function EventEdit({ params }: Props) {
                <div className="space-y-4">
                    <div>
                      <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">アンケート URL</label>
-                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
                        <MessageCircle size={18} className="text-slate-400 shrink-0"/>
-                       <NoZoomInput 
-                         className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
-                         placeholder="https://forms.google.com/..." 
-                         value={footerLinks.survey || ""}
-                         onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }}
-                       />
+                       <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://forms.google.com/..." value={footerLinks.survey || ""} onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }} />
                      </div>
                    </div>
                    <div>
                      <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">寄付・支援 URL</label>
-                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
                        <Heart size={18} className="text-slate-400 shrink-0"/>
-                       <NoZoomInput 
-                         className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
-                         placeholder="https://..." 
-                         value={footerLinks.donation || ""}
-                         onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }}
-                       />
+                       <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://..." value={footerLinks.donation || ""} onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }} />
                      </div>
                    </div>
                </div>
@@ -501,16 +511,22 @@ export default function EventEdit({ params }: Props) {
                )}
             </section>
 
-            {/* BLOCKS */}
+            {/* BLOCKS (DnD) */}
             <div className="space-y-4">
-                {blocks.map((b, i) => (
-                    <BlockCard 
-                        key={b.id} block={b} index={i} total={blocks.length} 
-                        isExpanded={expandedBlockId === b.id}
-                        onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
-                        onSave={saveBlockContent} onDelete={deleteBlock} onMove={moveBlock} supabaseClient={supabase} 
-                    />
-                ))}
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+                    {blocks.map((b, i) => (
+                      <div key={b.id} className="relative">
+                         <BlockCard 
+                            block={b} index={i} total={blocks.length} 
+                            isExpanded={expandedBlockId === b.id}
+                            onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
+                            onSave={saveBlockContent} onDelete={deleteBlock} onMove={moveBlock} supabaseClient={supabase} 
+                        />
+                      </div>
+                    ))}
+                  </SortableContext>
+                </DndContext>
             </div>
 
             {blocks.length === 0 && (
@@ -523,93 +539,99 @@ export default function EventEdit({ params }: Props) {
           </div>
         )}
 
-        {/* === LIVE TAB === */}
+        {/* === LIVE TAB (COCKPIT) === */}
         {activeTab === "live" && (
-          <div className="h-full flex flex-col relative bg-slate-50">
-            {/* 1. Status Panel */}
-            <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-30">
-               {/* Encore Status */}
-               <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                     <div className={`w-2 h-2 rounded-full ${encoreRevealed ? 'bg-pink-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                     <span className={`text-xs font-bold ${encoreRevealed ? 'text-pink-600' : 'text-slate-400'}`}>アンコール: {encoreRevealed ? "公開中" : "非公開"}</span>
-                  </div>
-                  <button onClick={toggleEncore} className={`px-4 py-1.5 rounded-full font-bold text-[10px] border active:scale-95 transition-all ${encoreRevealed?'bg-pink-500 text-white border-pink-500':'bg-white text-slate-500 border-slate-200'}`}>切り替え</button>
+          <div className="h-full flex flex-col relative">
+            {/* 1. Encore Switch */}
+            <div className="shrink-0 bg-slate-900/50 border-b border-slate-800 p-4 flex items-center justify-between">
+               <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${encoreRevealed ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-slate-700'}`}></div>
+                  <span className="text-xs font-bold tracking-widest uppercase text-slate-400">Encore Mode</span>
                </div>
-               
-               {/* Break Status Panel */}
-               <div className="p-4 bg-slate-50/50">
-                  {activeInfo?.item.type === "break" ? (
-                     <div className="flex items-center gap-4 bg-orange-50 border border-orange-100 p-3 rounded-2xl animate-in slide-in-from-top-1">
-                        <div className="flex-1">
-                           <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest flex items-center gap-1"><Coffee size={10}/> 休憩中</div>
-                           {/* LIVE TIMER DISPLAY FIX */}
-                           <div className="text-3xl font-black text-slate-800 tabular-nums font-mono leading-none mt-1">
-                              {(() => {
-                                 if (!activeInfo.item.timerEnd) return "--:--";
-                                 const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
-                                 if (diff <= 0) return "00:00";
-                                 const m = Math.floor(diff / 60000);
-                                 const s = Math.floor((diff % 60000) / 1000);
-                                 return `${m}:${s.toString().padStart(2, '0')}`;
-                              })()}
-                           </div>
-                        </div>
-                        <button onClick={stopBreak} className="h-10 px-5 bg-red-500 text-white rounded-xl font-bold text-xs shadow active:scale-95 flex items-center gap-1"><StopCircle size={14} /> 終了</button>
-                     </div>
-                  ) : (
-                     <div className="flex flex-col gap-2">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">休憩コントロール</div>
-                        <div className="flex gap-2 h-10">
-                           <button onClick={() => startBreak(10)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">10分</button>
-                           <button onClick={() => startBreak(15)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">15分</button>
-                           <button onClick={() => startBreak(20)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">20分</button>
-                           <div className="w-px bg-slate-300 mx-1"></div>
-                           <NoZoomInput type="number" className="w-12 !bg-white border border-slate-200 !rounded-lg text-center !text-xs font-bold !p-0" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
-                           <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 bg-slate-800 text-white rounded-lg text-xs font-bold active:scale-95">開始</button>
-                        </div>
-                     </div>
-                  )}
-               </div>
+               <button onClick={toggleEncore} className={`w-14 h-8 rounded-full border transition-all relative ${encoreRevealed ? 'bg-pink-600 border-pink-500' : 'bg-slate-800 border-slate-700'}`}>
+                  <div className={`absolute top-1 bottom-1 w-6 bg-white rounded-full transition-all ${encoreRevealed ? 'left-7' : 'left-1'}`}></div>
+               </button>
             </div>
 
-            {/* 2. Program List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-1">
-               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 pl-1">プログラム</h3>
+            {/* 2. Timeline (Dark Mode) */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
                {blocks.filter(b => b.type === "program").map(block => (
                   <div key={block.id}>
                      {block.content.items?.map((item: any, i: number) => {
                         const isActive = playingItemId === `${block.id}-${i}`;
                         const isBreak = item.type === "break";
-                        if (item.type === "section") return <div key={i} className="pt-6 pb-2 pl-2 text-sm font-bold text-slate-500 border-b border-slate-200 mb-2">{item.title}</div>;
-                        if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-50 text-yellow-800 text-xs rounded border border-yellow-200">📝 {item.title}</div>;
+                        if (item.type === "section") return <div key={i} className="pt-8 pb-2 pl-2 text-xs font-bold text-slate-600 border-b border-slate-800 mb-2 uppercase tracking-widest">{item.title}</div>;
+                        if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-900/20 text-yellow-500 border border-yellow-700/30 text-xs rounded">📝 {item.title}</div>;
                         return (
-                           <div key={i} className={`p-3 flex items-center gap-3 transition-colors rounded-lg ${isActive ? 'bg-indigo-50' : 'bg-transparent'}`}>
-                              <div className="shrink-0 w-8 flex justify-center">
-                                 {isActive ? (isBreak ? <Coffee size={18} className="text-orange-500"/> : <MonitorPlay size={18} className="text-indigo-600 animate-pulse"/>) : (<div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>)}
+                           <div 
+                             key={i} 
+                             onClick={() => !isBreak && toggleActiveItem(block.id, i)}
+                             className={`p-4 flex items-center gap-4 transition-all rounded-xl cursor-pointer border ${isActive ? 'bg-indigo-900/20 border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'bg-slate-900/40 border-slate-800 opacity-60 hover:opacity-100'}`}
+                           >
+                              <div className="shrink-0">
+                                 {isActive ? (
+                                    isBreak ? <Coffee className="text-orange-400 animate-pulse"/> : <div className="w-3 h-3 bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8] animate-pulse"></div>
+                                 ) : (
+                                    <div className="w-2 h-2 rounded-full bg-slate-600"></div>
+                                 )}
                               </div>
-                              <div className="flex-1 min-w-0" onClick={() => !isBreak && toggleActiveItem(block.id, i)}>
-                                 <div className={`text-sm ${isActive ? 'font-bold text-indigo-900' : 'font-medium text-slate-700'}`}>{item.title}</div>
-                                 <div className="text-xs text-slate-400 mt-0.5">{isBreak ? `休憩 ${item.duration}` : item.composer}</div>
+                              <div className="flex-1 min-w-0">
+                                 <div className={`text-base ${isActive ? 'font-bold text-white' : 'font-medium text-slate-400'}`}>{item.title}</div>
+                                 <div className="text-xs text-slate-500 mt-1">{isBreak ? item.duration : item.composer}</div>
                               </div>
-                              {!isBreak && (
-                                 <button onClick={() => toggleActiveItem(block.id, i)} className={`shrink-0 p-2 rounded-full ${isActive ? 'bg-indigo-200 text-indigo-700' : 'text-slate-300 hover:bg-slate-100'}`}>
-                                    {isActive ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}
-                                 </button>
-                              )}
-                              {isBreak && isActive && <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-1 rounded">進行中</span>}
+                              {isActive && !isBreak && <span className="text-[10px] font-bold text-indigo-400 border border-indigo-500/50 px-2 py-1 rounded uppercase tracking-wider">Playing</span>}
+                              {isBreak && isActive && <span className="text-[10px] font-bold text-orange-400 border border-orange-500/50 px-2 py-1 rounded uppercase tracking-wider">Break</span>}
                            </div>
                         )
                      })}
                   </div>
                ))}
-               <div className="h-20"/>
+               <div className="h-40"/>
+            </div>
+
+            {/* 3. Break Controller (Bottom Fixed) */}
+            <div className="shrink-0 bg-slate-900 border-t border-slate-800 p-5 pb-8 relative z-20">
+               {activeInfo?.item.type === "break" ? (
+                  // ACTIVE BREAK
+                  <div className="flex items-center gap-6">
+                     <div className="flex-1">
+                        <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Coffee size={12}/> Intermission</div>
+                        <div className="text-5xl font-black text-white tabular-nums font-mono leading-none tracking-tight" style={{textShadow: "0 0 30px rgba(249,115,22,0.4)"}}>
+                           {(() => {
+                              if (!activeInfo.item.timerEnd) return "--:--";
+                              const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
+                              if (diff <= 0) return "00:00";
+                              const m = Math.floor(diff / 60000);
+                              const s = Math.floor((diff % 60000) / 1000);
+                              return `${m}:${s.toString().padStart(2, '0')}`;
+                           })()}
+                        </div>
+                     </div>
+                     <button onClick={stopBreak} className="h-16 w-16 rounded-full bg-red-600/20 border border-red-500 text-red-500 flex flex-col items-center justify-center active:scale-95 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
+                        <StopCircle size={24} />
+                        <span className="text-[9px] font-bold mt-1">STOP</span>
+                     </button>
+                  </div>
+               ) : (
+                  // IDLE
+                  <div className="flex items-center gap-4 justify-between">
+                     {[10, 15, 20].map(min => (
+                        <button key={min} onClick={() => startBreak(min)} className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700 hover:border-slate-500 hover:text-white transition-all active:scale-90">
+                           {min}m
+                        </button>
+                     ))}
+                     <div className="h-10 w-px bg-slate-800"></div>
+                     <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="w-16 h-16 rounded-full bg-indigo-600 text-white font-bold text-xs flex flex-col items-center justify-center shadow-lg active:scale-90">
+                        <Play size={16} fill="currentColor" className="mb-1"/> Start
+                     </button>
+                  </div>
+               )}
             </div>
           </div>
         )}
       </main>
 
-      {/* FAB */}
+      {/* FAB (Add Button) */}
       {activeTab === "edit" && (
         <>
           <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
@@ -624,23 +646,17 @@ export default function EventEdit({ params }: Props) {
               </div>
             </div>
           </div>
-          <button onClick={() => setIsAddMenuOpen(true)} className="fixed bottom-20 right-6 z-40 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center transition-transform active:scale-90 hover:scale-105">
+          <button onClick={() => setIsAddMenuOpen(true)} className="fixed bottom-8 right-6 z-40 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center transition-transform active:scale-90 hover:scale-105">
             <Plus size={28} />
           </button>
         </>
       )}
 
-      {/* BOTTOM NAV */}
-      <nav className="fixed bottom-0 inset-x-0 z-50 bg-white/90 backdrop-blur-xl border-t border-slate-200 pb-safe flex justify-around items-center h-16">
-        <NavBtn active={activeTab === "edit"} onClick={() => setActiveTab("edit")} icon={Edit3} label="編集" />
-        <NavBtn active={activeTab === "live"} onClick={() => setActiveTab("live")} icon={MonitorPlay} label="本番モード" />
-      </nav>
-
     </div>
   );
 }
 
-// --- SUB COMPONENTS ---
+// --- Helper Components ---
 
 function NavBtn({ active, onClick, icon: Icon, label }: any) {
   return (
@@ -702,12 +718,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
     <div className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {!isExpanded && (
-             <div className="flex flex-col gap-1 -ml-1" onClick={e=>e.stopPropagation()}>
-               <button onClick={() => onMove(block.id, 'up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0"><ArrowUp size={16}/></button>
-               <button onClick={() => onMove(block.id, 'down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0"><ArrowDown size={16}/></button>
-             </div>
-           )}
+           {/* dnd Handle Wrapper (Parent handles dragging) */}
            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${badgeColors[block.type] || 'bg-slate-100'}`}>
              <TypeIcon size={20} />
            </div>
@@ -718,7 +729,15 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
              </div>}
            </div>
         </div>
-        <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : 'text-slate-300'}`}><ChevronDown size={20} /></div>
+        <div className="flex items-center gap-4">
+           {!isExpanded && (
+             <div className="flex flex-col gap-1 -mr-1" onClick={e=>e.stopPropagation()}>
+               <button onClick={() => onMove(block.id, 'up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-1"><ArrowUp size={16}/></button>
+               <button onClick={() => onMove(block.id, 'down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-1"><ArrowDown size={16}/></button>
+             </div>
+           )}
+           <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : 'text-slate-300'}`}><ChevronDown size={20} /></div>
+        </div>
       </div>
 
       {isExpanded && (
@@ -761,7 +780,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                   </>
               )}
               
-              {/* === PROFILE EDIT (Mobile Optimized) === */}
+              {/* PROFILE (Structured) */}
               {block.type === "profile" && (
                 <div className="space-y-4">
                   {(content.people || []).map((p: any, i: number) => (
@@ -775,12 +794,12 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                 </div>
               )}
 
-              {/* === PROGRAM EDIT (Accordion) === */}
+              {/* PROGRAM (Accordion) */}
               {block.type === "program" && (
                   <div className="space-y-4">
                     {(content.items || []).map((item: any, i: number) => (
                         <div key={i} className="group relative">
-                            {/* Section: Simple & Sortable */}
+                            {/* Section */}
                             {item.type === "section" && (
                               <div className="flex gap-2 items-center mt-6 mb-2">
                                 <div className="flex flex-col gap-1 mr-1">
@@ -799,12 +818,12 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                                    <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowUp size={12}/></button>
                                    <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowDown size={12}/></button>
                                  </div>
-                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0" rows={2} placeholder="メモ" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
+                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0 !placeholder-yellow-400/50" rows={1} placeholder="メモを入力..." value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
                                  <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
                               </div>
                             )}
 
-                            {/* Song / Break Item (Accordion) */}
+                            {/* Song / Break Item */}
                             {(item.type === "song" || item.type === "break") && (
                                 <ProgramItemEditor 
                                   item={item} 
@@ -849,19 +868,17 @@ function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
   const [open, setOpen] = useState(false);
   return (
     <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-       {/* Header: Always visible */}
        <div className="flex items-center gap-3 p-3 bg-white cursor-pointer select-none" onClick={() => setOpen(!open)}>
           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-100 shrink-0">
              {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-2 text-slate-300" size={20}/>}
           </div>
           <div className="flex-1 min-w-0">
-             <div className="text-sm font-bold truncate">{p.name || "名称未設定"}</div>
+             <div className="text-sm font-bold truncate text-slate-800">{p.name || "名称未設定"}</div>
              {!open && <div className="text-[10px] text-slate-400 truncate">{p.role}</div>}
           </div>
           <ChevronDown size={16} className={`text-slate-300 transition-transform ${open?'rotate-180':''}`}/>
        </div>
 
-       {/* Body: Accordion */}
        {open && (
          <div className="p-4 space-y-4 border-t border-slate-100 animate-in slide-in-from-top-1">
             <div className="flex gap-4">
@@ -870,29 +887,30 @@ function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
                   <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer z-10"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={onUpload} /></label>
                </div>
                <div className="flex-1 space-y-2">
-                  <NoZoomInput placeholder="名前" value={p.name} onChange={e => onChange({...p, name: e.target.value})} />
-                  <NoZoomInput placeholder="役割 (例: Violin)" value={p.role} onChange={e => onChange({...p, role: e.target.value})} />
+                  <InputField label="名前"><NoZoomInput placeholder="氏名" value={p.name} onChange={e => onChange({...p, name: e.target.value})} /></InputField>
+                  <InputField label="役割"><NoZoomInput placeholder="例: Violin" value={p.role} onChange={e => onChange({...p, role: e.target.value})} /></InputField>
                </div>
             </div>
             
-            {/* SNS */}
             <div className="space-y-2">
                <label className="text-[10px] font-bold text-slate-400">SNSリンク</label>
-               <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-slate-200">
-                  <Twitter size={14} className="text-slate-400 shrink-0"/>
-                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="X (Twitter) URL" value={p.sns?.twitter||""} onChange={e=>onChange({...p, sns:{...p.sns, twitter:e.target.value}})}/>
+               <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-slate-200">
+                  <span className="text-xs font-bold text-slate-400 w-4">X</span>
+                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="https://x.com/..." value={p.sns?.twitter||""} onChange={e=>onChange({...p, sns:{...p.sns, twitter:e.target.value}})}/>
                </div>
-               <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-slate-200">
-                  <Instagram size={14} className="text-slate-400 shrink-0"/>
-                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="Instagram URL" value={p.sns?.instagram||""} onChange={e=>onChange({...p, sns:{...p.sns, instagram:e.target.value}})}/>
+               <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-slate-200">
+                  <Instagram size={14} className="text-slate-400 w-4"/>
+                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="https://instagram.com/..." value={p.sns?.instagram||""} onChange={e=>onChange({...p, sns:{...p.sns, instagram:e.target.value}})}/>
                </div>
-               <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-slate-200">
-                  <Globe size={14} className="text-slate-400 shrink-0"/>
-                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="Website URL" value={p.sns?.website||""} onChange={e=>onChange({...p, sns:{...p.sns, website:e.target.value}})}/>
+               <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-slate-200">
+                  <Globe size={14} className="text-slate-400 w-4"/>
+                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="https://..." value={p.sns?.website||""} onChange={e=>onChange({...p, sns:{...p.sns, website:e.target.value}})}/>
                </div>
             </div>
 
-            <NoZoomTextArea className="h-24 bg-white" placeholder="紹介文" value={p.bio} onChange={e => onChange({...p, bio: e.target.value})} />
+            <InputField label="プロフィール本文">
+               <NoZoomTextArea className="h-24 bg-white" placeholder="経歴などを入力..." value={p.bio} onChange={e => onChange({...p, bio: e.target.value})} />
+            </InputField>
             
             <div className="flex justify-end">
                <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
@@ -910,7 +928,6 @@ function ProgramItemEditor({ item, index, total, onChange, onDelete, onMove }: a
   return (
     <div className={`bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden ${item.isEncore ? 'ring-2 ring-pink-100 bg-pink-50/20' : ''}`}>
        <div className="flex items-center p-3 gap-3 bg-white cursor-pointer select-none" onClick={() => setOpen(!open)}>
-          {/* Reorder Buttons */}
           <div className="flex flex-col gap-0.5" onClick={e=>e.stopPropagation()}>
              <button onClick={() => onMove('up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-0.5"><ArrowUp size={12}/></button>
              <button onClick={() => onMove('down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-0.5"><ArrowDown size={12}/></button>
