@@ -18,7 +18,8 @@ import {
   Music,
   Loader2,
   Clock,
-  Wind
+  Wind,
+  User // ← これを追加しました！
 } from "lucide-react";
 import { Cinzel, Zen_Old_Mincho, Cormorant_Garamond } from 'next/font/google';
 import { clsx, type ClassValue } from "clsx";
