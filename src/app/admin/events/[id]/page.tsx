@@ -3,8 +3,8 @@
 import React, { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
-import html2canvas from "html2canvas";
-import QRCode from "qrcode"; // QRコード生成用
+// @ts-ignore
+import QRCode from "qrcode";
 import {
   Save,
   Trash2,
@@ -31,31 +31,14 @@ import {
   LayoutTemplate,
   Type,
   List,
-  GripVertical,
   Star,
-  Calendar,
   StopCircle,
-  Download,
-  Settings2
+  Copy,
+  Mail,
+  ArrowUp,
+  ArrowDown,
+  ExternalLink
 } from "lucide-react";
-
-// --- dnd-kit imports ---
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,33 +59,6 @@ function InputField({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-// --- Sortable Item Wrapper (Handle Only Logic) ---
-function SortableItem({ id, children }: { id: string; children: React.ReactElement }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging
-  } = useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 999 : 'auto',
-    position: 'relative' as const,
-    touchAction: 'none'
-  };
-
-  return (
-    <div ref={setNodeRef} style={style}>
-       {React.cloneElement(children as React.ReactElement<any>, { dragHandleProps: { ...listeners, ...attributes } })}
-    </div>
-  );
-}
-
 export default function EventEdit({ params }: Props) {
   const { id } = use(params);
 
@@ -113,20 +69,13 @@ export default function EventEdit({ params }: Props) {
   const [msg, setMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // Share Modal & QR
+  // Share & QR
   const [showShareModal, setShowShareModal] = useState(false);
-  const [qrCodeData, setQrCodeData] = useState<string>(""); // Local QR Data URL
-  const shareCardRef = useRef<HTMLDivElement>(null);
+  const [qrCodeData, setQrCodeData] = useState<string>("");
 
   // UI State
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
-
-  // DnD Sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
 
   // Cover Image
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -165,28 +114,28 @@ export default function EventEdit({ params }: Props) {
     const { data: b } = await supabase.from("blocks").select("*").eq("event_id", id).order("sort_order", { ascending: true });
     setBlocks(b ?? []);
 
-    // Generate QR Code locally
     if (e?.slug && typeof window !== 'undefined') {
       const url = `${window.location.origin}/e/${e.slug}`;
-      QRCode.toDataURL(url, { width: 400, margin: 2 }, (err, url) => {
+      QRCode.toDataURL(url, { width: 400, margin: 2 }, (err: any, url: string) => {
         if (!err) setQrCodeData(url);
       });
     }
   }
 
-  // --- DnD Handlers ---
-  async function handleDragEnd(event: any) {
-    const { active, over } = event;
-    if (active.id !== over.id) {
-      setBlocks((items) => {
-        const oldIndex = items.findIndex((i) => i.id === active.id);
-        const newIndex = items.findIndex((i) => i.id === over.id);
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        const updates = newItems.map((b, i) => ({ id: b.id, sort_order: (i + 1) * 10 }));
-        Promise.all(updates.map(u => supabase.from("blocks").update({ sort_order: u.sort_order }).eq("id", u.id)));
-        return newItems;
-      });
-    }
+  // --- Sorting Logic (Buttons) ---
+  async function moveBlock(blockId: string, dir: "up" | "down") {
+    const idx = blocks.findIndex((b) => b.id === blockId);
+    const to = dir === "up" ? idx - 1 : idx + 1;
+    if (idx < 0 || to < 0 || to >= blocks.length) return;
+    
+    const newBlocks = [...blocks];
+    [newBlocks[idx], newBlocks[to]] = [newBlocks[to], newBlocks[idx]];
+    setBlocks(newBlocks);
+    
+    await Promise.all([
+      supabase.from("blocks").update({ sort_order: (idx + 1) * 10 }).eq("id", newBlocks[idx].id),
+      supabase.from("blocks").update({ sort_order: (to + 1) * 10 }).eq("id", newBlocks[to].id),
+    ]);
   }
 
   // --- Actions ---
@@ -250,39 +199,45 @@ export default function EventEdit({ params }: Props) {
     await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
   }
 
-  // --- Break Logic ---
+  // --- Break Logic (Fixed) ---
   async function startBreak(minutes: number) {
+    // 1. Find the dedicated break block (or create a temporary one if logic allowed, but we'll stick to finding existing)
     let targetBlockId = null;
     let targetItemIndex = -1;
 
-    // Use current active break or find first break
-    if (playingItemId) {
-       const active = getActiveItemInfo();
-       if (active?.item.type === "break") {
-          targetBlockId = active.block.id;
-          targetItemIndex = active.index;
-       }
-    }
-    if (!targetBlockId) {
-       for (const b of blocks) {
-          if (b.type === "program" && b.content?.items) {
-             const idx = b.content.items.findIndex((it:any) => it.type === "break");
-             if (idx !== -1) {
-                targetBlockId = b.id;
-                targetItemIndex = idx;
-                break;
-             }
-          }
-       }
+    // Search for a Break item in the blocks
+    for (const b of blocks) {
+        if (b.type === "program" && b.content?.items) {
+            const idx = b.content.items.findIndex((it:any) => it.type === "break");
+            if (idx !== -1) {
+            targetBlockId = b.id;
+            targetItemIndex = idx;
+            // If there are multiple breaks, we might want to pick the one closest to current play, 
+            // but for safety, picking the first one is predictable.
+            // Or better: If a break is *currently* selected, use that.
+            if (playingItemId && playingItemId.startsWith(b.id)) {
+                // Current block has focus, check if it has a break
+                // This logic can be refined, but for now simple find is safer.
+            }
+            break;
+            }
+        }
     }
 
-    if (!targetBlockId) return showMsg("プログラムに休憩がありません", true);
+    if (!targetBlockId) return showMsg("プログラム内に「休憩」項目を追加してください", true);
 
     const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
     const target = blocks[targetIndex];
     const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
-    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
+    
+    // Set timer on the target break item
+    newItems[targetItemIndex] = { 
+        ...newItems[targetItemIndex], 
+        timerEnd: end, 
+        duration: `${minutes}分`, 
+        active: true 
+    };
     
     setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
     const newBlocks = [...blocks];
@@ -296,6 +251,7 @@ export default function EventEdit({ params }: Props) {
   async function stopBreak() {
     if (!playingItemId) return;
     const active = getActiveItemInfo();
+    // Only stop if it's actually a break
     if (!active || active.item.type !== "break") return;
 
     const targetIndex = blocks.findIndex(b => b.id === active.block.id);
@@ -352,27 +308,26 @@ export default function EventEdit({ params }: Props) {
     }
   }
 
-  // --- Image Export Logic (Fixed with qrcode & local rendering) ---
-  async function handleDownloadImage() {
-    if (!shareCardRef.current) return;
-    try {
-      // 一瞬だけ画質向上のためにスケールアップしてレンダリング
-      const canvas = await html2canvas(shareCardRef.current, {
-        backgroundColor: null,
-        scale: 3, // 高解像度
-        useCORS: true, // 念のため
-        logging: false
-      });
-      const link = document.createElement("a");
-      link.download = `pamp_${event.slug}_invite.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      showMsg("画像を保存しました✨");
-    } catch (e) {
-      console.error(e);
-      showMsg("保存に失敗しました", true);
+  // --- Share Logic ---
+  const handleCopyLink = () => {
+    if (typeof window !== 'undefined') {
+        const url = `${window.location.origin}/e/${event.slug}`;
+        navigator.clipboard.writeText(url);
+        showMsg("URLをコピーしました📋");
     }
-  }
+  };
+  const handleShareLine = () => {
+    if (typeof window !== 'undefined') {
+        const url = `${window.location.origin}/e/${event.slug}`;
+        window.open(`https://line.me/R/msg/text/?${encodeURIComponent(event.title + " " + url)}`, '_blank');
+    }
+  };
+  const handleShareMail = () => {
+    if (typeof window !== 'undefined') {
+        const url = `${window.location.origin}/e/${event.slug}`;
+        window.open(`mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(url)}`);
+    }
+  };
 
   // Helper
   const getActiveItemInfo = () => {
@@ -410,48 +365,47 @@ export default function EventEdit({ params }: Props) {
         {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
       </div>
 
-      {/* SHARE MODAL */}
+      {/* SHARE MODAL (No HTML2Canvas, just functional) */}
       {showShareModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowShareModal(false)}>
            <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              <div ref={shareCardRef} className="bg-slate-50 p-8 flex flex-col items-center text-center relative overflow-hidden">
-                 <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-                 <h3 className="font-bold text-xl text-slate-800 mb-1 mt-4 relative z-10 leading-tight">{event.title}</h3>
-                 <p className="text-[10px] text-slate-400 mb-6 uppercase tracking-[0.2em] font-bold relative z-10">Official Program</p>
-                 <div className="bg-white p-4 rounded-3xl shadow-xl border border-slate-100 mb-6 relative z-10">
-                    {/* Local QR Code Image */}
-                    {qrCodeData && <img src={qrCodeData} alt="QR" className="w-48 h-48 mix-blend-multiply" />}
-                 </div>
-                 <div className="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white/60 backdrop-blur-sm border border-slate-200 px-5 py-2 rounded-full relative z-10">
-                    <Calendar size={14}/> <span>{new Date().toLocaleDateString()}</span>
+              <div className="bg-slate-50 p-8 flex flex-col items-center text-center">
+                 <h3 className="font-bold text-lg text-slate-800 mb-6">プログラムを配布</h3>
+                 {qrCodeData && <img src={qrCodeData} alt="QR" className="w-48 h-48 mb-6 mix-blend-multiply border rounded-xl" />}
+                 
+                 <div className="grid grid-cols-3 gap-3 w-full">
+                    <button onClick={handleShareLine} className="flex flex-col items-center gap-2 p-3 bg-[#06C755]/10 rounded-2xl hover:bg-[#06C755]/20 active:scale-95 transition-all">
+                       <div className="w-10 h-10 bg-[#06C755] rounded-full flex items-center justify-center text-white"><ExternalLink size={20}/></div>
+                       <span className="text-[10px] font-bold text-slate-600">LINE</span>
+                    </button>
+                    <button onClick={handleCopyLink} className="flex flex-col items-center gap-2 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all">
+                       <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-600"><Copy size={20}/></div>
+                       <span className="text-[10px] font-bold text-slate-600">コピー</span>
+                    </button>
+                    <button onClick={handleShareMail} className="flex flex-col items-center gap-2 p-3 bg-blue-50 rounded-2xl hover:bg-blue-100 active:scale-95 transition-all">
+                       <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white"><Mail size={20}/></div>
+                       <span className="text-[10px] font-bold text-slate-600">メール</span>
+                    </button>
                  </div>
               </div>
-              <div className="p-5 bg-white border-t border-slate-100 grid gap-3">
-                 <button onClick={handleDownloadImage} className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-lg shadow-indigo-200">
-                    <Download size={18}/> 画像を保存
-                 </button>
-                 <button className="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-95 transition-transform" onClick={() => setShowShareModal(false)}>
-                    閉じる
-                 </button>
+              <div className="p-4 bg-white border-t border-slate-100">
+                 <button className="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:scale-95 transition-transform" onClick={() => setShowShareModal(false)}>閉じる</button>
               </div>
            </div>
         </div>
       )}
 
-      {/* MAIN CONTAINER (Mobile Optimized Height) */}
+      {/* MAIN CONTAINER */}
       <main className="h-[calc(100dvh-7.5rem)] bg-slate-100 overflow-hidden">
         
         {/* === EDIT TAB === */}
         {activeTab === "edit" && (
           <div className="h-full overflow-y-auto pb-32 p-4 space-y-6">
-            
-            {/* HERO */}
             <div className="pt-4 text-center">
                <h2 className="text-lg font-bold text-slate-800">パンフレット編集画面</h2>
                <div className="w-12 h-1 bg-indigo-500 rounded-full mx-auto mt-2 opacity-20"></div>
             </div>
 
-            {/* COVER */}
             <div>
                <label className="block text-[10px] font-bold text-slate-400 mb-1.5 ml-1 tracking-wider uppercase">カバー画像</label>
                <section className="bg-white rounded-[2rem] overflow-hidden shadow-sm border border-slate-100">
@@ -460,10 +414,7 @@ export default function EventEdit({ params }: Props) {
                      // eslint-disable-next-line @next/next/no-img-element
                      <img src={displayCover} className="w-full h-full object-cover" alt="" />
                      ) : (
-                     <div className="flex flex-col items-center justify-center h-full text-slate-300">
-                        <ImageIcon size={32} className="mb-1"/>
-                        <span className="text-xs font-bold">画像なし</span>
-                     </div>
+                     <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
                      )}
                      <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
                      <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
@@ -480,22 +431,15 @@ export default function EventEdit({ params }: Props) {
                </section>
             </div>
 
-            {/* BLOCKS (Handle Only DnD) */}
             <div className="space-y-4">
-               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                    {blocks.map((b, i) => (
-                      <SortableItem key={b.id} id={b.id}>
-                        <BlockCard 
-                          block={b} index={i} total={blocks.length} 
-                          isExpanded={expandedBlockId === b.id}
-                          onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
-                          onSave={saveBlockContent} onDelete={deleteBlock} supabaseClient={supabase} 
-                        />
-                      </SortableItem>
-                    ))}
-                  </SortableContext>
-                </DndContext>
+                {blocks.map((b, i) => (
+                    <BlockCard 
+                        key={b.id} block={b} index={i} total={blocks.length} 
+                        isExpanded={expandedBlockId === b.id}
+                        onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
+                        onSave={saveBlockContent} onDelete={deleteBlock} onMove={moveBlock} supabaseClient={supabase} 
+                    />
+                ))}
             </div>
 
             {blocks.length === 0 && (
@@ -508,113 +452,101 @@ export default function EventEdit({ params }: Props) {
           </div>
         )}
 
-        {/* === LIVE TAB (3-Card Layout) === */}
+        {/* === LIVE TAB (Redesigned Cockpit v2) === */}
         {activeTab === "live" && (
-          <div className="h-full flex flex-col p-3 gap-3">
+          <div className="h-full flex flex-col relative bg-slate-50">
             
-            {/* CARD 1: ENCORE (Fixed Top) */}
-            <div className="shrink-0 bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex items-center justify-between">
-               <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-full ${encoreRevealed ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-400'}`}>
-                     {encoreRevealed ? <Unlock size={18}/> : <Lock size={18}/>}
+            {/* 1. STATUS & CONTROLS (Top Fixed) */}
+            <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-30">
+               {/* Encore Status Row */}
+               <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                     <div className={`w-2 h-2 rounded-full ${encoreRevealed ? 'bg-pink-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                     <span className={`text-xs font-bold ${encoreRevealed ? 'text-pink-600' : 'text-slate-400'}`}>アンコール: {encoreRevealed ? "公開中" : "非公開"}</span>
                   </div>
-                  <div>
-                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Encore</div>
-                     <div className={`text-sm font-bold ${encoreRevealed ? 'text-pink-600' : 'text-slate-600'}`}>
-                        {encoreRevealed ? "公開中" : "非公開"}
-                     </div>
-                  </div>
+                  <button onClick={toggleEncore} className={`px-4 py-1.5 rounded-full font-bold text-[10px] border active:scale-95 transition-all ${encoreRevealed?'bg-pink-500 text-white border-pink-500':'bg-white text-slate-500 border-slate-200'}`}>切り替え</button>
                </div>
-               <button onClick={toggleEncore} className={`px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 ${encoreRevealed ? 'bg-pink-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                  切り替え
-               </button>
-            </div>
 
-            {/* CARD 2: TIMELINE (Scrollable Middle) */}
-            <div className="flex-1 bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col relative">
-                 <div className="shrink-0 px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Timeline</span>
-                    {activeInfo && !activeInfo.item.type.includes('break') && (
-                       <span className="flex items-center gap-1 text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full animate-pulse">
-                          <MonitorPlay size={10}/> 演奏中
-                       </span>
-                    )}
-                 </div>
-                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                    {blocks.filter(b => b.type === "program").map(block => (
-                       <div key={block.id} className="space-y-2">
-                          {block.content.items?.map((item: any, i: number) => {
-                             const isActive = playingItemId === `${block.id}-${i}`;
-                             const isBreak = item.type === "break";
-                             
-                             if (item.type === "section") return <div key={i} className="pt-4 pb-1 pl-2 text-xs font-bold text-slate-400 border-b border-slate-100">{item.title}</div>;
-                             if (item.type === "memo") return <div key={i} className="mx-1 p-2 bg-yellow-50 text-yellow-800 text-xs rounded border border-yellow-100">📝 {item.title}</div>;
-
-                             return (
-                                <div key={i} className={`p-3 rounded-xl border transition-all flex items-center gap-3 ${isActive ? 'bg-indigo-50 border-indigo-200 shadow-sm' : 'bg-white border-slate-100'}`}>
-                                   {/* Play/Icon */}
-                                   {isBreak ? (
-                                      <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-400 flex items-center justify-center shrink-0"><Coffee size={18}/></div>
-                                   ) : (
-                                      <button onClick={() => toggleActiveItem(block.id, i)} className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors ${isActive ? 'bg-indigo-500 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>
-                                         {isActive ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor" className="ml-0.5"/>}
-                                      </button>
-                                   )}
-                                   {/* Text */}
-                                   <div className="flex-1 min-w-0">
-                                      <div className={`font-bold text-sm truncate ${isActive ? 'text-indigo-900' : 'text-slate-700'}`}>{item.title}</div>
-                                      <div className="text-xs text-slate-400 truncate">{isBreak ? `休憩 (${item.duration})` : item.composer}</div>
-                                   </div>
-                                   {item.isEncore && <span className="text-[10px] font-bold bg-pink-100 text-pink-600 px-2 py-0.5 rounded">Enc</span>}
-                                </div>
-                             )
-                          })}
-                       </div>
-                    ))}
-                    <div className="h-4"/>
-                 </div>
-            </div>
-
-            {/* CARD 3: BREAK CONTROL (Fixed Bottom) */}
-            <div className="shrink-0 bg-white rounded-2xl p-4 shadow-md border border-slate-200 relative overflow-hidden">
-               {activeInfo?.item.type === "break" ? (
-                  // ACTIVE BREAK
-                  <div className="flex items-center gap-4">
-                     <div className="flex-1">
-                        <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Coffee size={10}/> 休憩中</div>
-                        <div className="text-4xl font-black text-slate-800 tabular-nums font-mono leading-none">
-                           {(() => {
-                              if (!activeInfo.item.timerEnd) return "--:--";
-                              const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
-                              if (diff <= 0) return "00:00";
-                              const m = Math.floor(diff / 60000);
-                              const s = Math.floor((diff % 60000) / 1000);
-                              return `${m}:${s.toString().padStart(2, '0')}`;
-                           })()}
+               {/* Break Controls Row */}
+               <div className="p-4 bg-slate-50/50">
+                  {activeInfo?.item.type === "break" ? (
+                     <div className="flex items-center gap-4 bg-orange-50 border border-orange-100 p-3 rounded-2xl animate-in slide-in-from-top-1">
+                        <div className="flex-1">
+                           <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest flex items-center gap-1"><Coffee size={10}/> 休憩中</div>
+                           <div className="text-3xl font-black text-slate-800 tabular-nums font-mono leading-none mt-1">
+                              {(() => {
+                                 if (!activeInfo.item.timerEnd) return "--:--";
+                                 const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
+                                 if (diff <= 0) return "00:00";
+                                 const m = Math.floor(diff / 60000);
+                                 const s = Math.floor((diff % 60000) / 1000);
+                                 return `${m}:${s.toString().padStart(2, '0')}`;
+                              })()}
+                           </div>
+                        </div>
+                        <button onClick={stopBreak} className="h-10 px-5 bg-red-500 text-white rounded-xl font-bold text-xs shadow active:scale-95 flex items-center gap-1">
+                           <StopCircle size={14} /> 終了
+                        </button>
+                     </div>
+                  ) : (
+                     <div className="flex flex-col gap-2">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">休憩コントロール</div>
+                        <div className="flex gap-2 h-10">
+                           <button onClick={() => startBreak(10)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">10分</button>
+                           <button onClick={() => startBreak(15)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">15分</button>
+                           <button onClick={() => startBreak(20)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">20分</button>
+                           <div className="w-px bg-slate-300 mx-1"></div>
+                           <input type="number" className="w-12 bg-white border border-slate-200 rounded-lg text-center text-xs font-bold" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
+                           <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 bg-slate-800 text-white rounded-lg text-xs font-bold active:scale-95">開始</button>
                         </div>
                      </div>
-                     <button onClick={stopBreak} className="h-12 px-6 bg-red-500 text-white rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform flex items-center gap-2">
-                        <StopCircle size={20} /> 終了
-                     </button>
+                  )}
+               </div>
+            </div>
+
+            {/* 2. PROGRAM LIST (Scrollable) */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-1">
+               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 pl-1">プログラム</h3>
+               {blocks.filter(b => b.type === "program").map(block => (
+                  <div key={block.id}>
+                     {block.content.items?.map((item: any, i: number) => {
+                        const isActive = playingItemId === `${block.id}-${i}`;
+                        const isBreak = item.type === "break";
+                        if (item.type === "section") return <div key={i} className="pt-6 pb-2 pl-2 text-sm font-bold text-slate-500 border-b border-slate-200 mb-2">{item.title}</div>;
+                        if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-50 text-yellow-800 text-xs rounded border border-yellow-200">📝 {item.title}</div>;
+
+                        return (
+                           <div key={i} className={`p-3 flex items-center gap-3 transition-colors rounded-lg ${isActive ? 'bg-indigo-50' : 'bg-transparent'}`}>
+                              {/* Icon */}
+                              <div className="shrink-0 w-8 flex justify-center">
+                                 {isActive ? (
+                                    isBreak ? <Coffee size={18} className="text-orange-500"/> : <MonitorPlay size={18} className="text-indigo-600 animate-pulse"/>
+                                 ) : (
+                                    <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
+                                 )}
+                              </div>
+                              
+                              {/* Content */}
+                              <div className="flex-1 min-w-0" onClick={() => !isBreak && toggleActiveItem(block.id, i)}>
+                                 <div className={`text-sm ${isActive ? 'font-bold text-indigo-900' : 'font-medium text-slate-700'}`}>{item.title}</div>
+                                 <div className="text-xs text-slate-400 mt-0.5">{isBreak ? `休憩 ${item.duration}` : item.composer}</div>
+                              </div>
+
+                              {/* Action (Toggle Play for Songs only) */}
+                              {!isBreak && (
+                                 <button onClick={() => toggleActiveItem(block.id, i)} className={`shrink-0 p-2 rounded-full ${isActive ? 'bg-indigo-200 text-indigo-700' : 'text-slate-300 hover:bg-slate-100'}`}>
+                                    {isActive ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}
+                                 </button>
+                              )}
+                              {isBreak && isActive && (
+                                 <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-1 rounded">進行中</span>
+                              )}
+                           </div>
+                        )
+                     })}
                   </div>
-               ) : (
-                  // IDLE CONTROL
-                  <div className="flex flex-col gap-3">
-                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">休憩のコントロール</div>
-                     <div className="flex gap-2">
-                        {[10, 15, 20].map(min => (
-                           <button key={min} onClick={() => startBreak(min)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 active:scale-95 transition-all">{min}分</button>
-                        ))}
-                     </div>
-                     <div className="flex gap-2 h-10">
-                         <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 flex items-center">
-                            <input type="number" className="w-full bg-transparent text-sm font-bold outline-none text-slate-700 placeholder:text-slate-300" placeholder="自由" value={customBreakTime} onChange={(e) => setCustomBreakTime(e.target.value)} />
-                            <span className="text-xs font-bold text-slate-400">分</span>
-                         </div>
-                         <button onClick={() => startBreak(parseInt(customBreakTime) || 15)} className="px-5 bg-slate-800 text-white rounded-lg text-xs font-bold active:scale-95 transition-all">開始</button>
-                     </div>
-                  </div>
-               )}
+               ))}
+               <div className="h-20"/>
             </div>
 
           </div>
@@ -673,12 +605,11 @@ function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
 }
 
 // --- ACCORDION BLOCK CARD ---
-function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, supabaseClient, dragHandleProps }: any) {
+function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, onMove, supabaseClient }: any) {
   const [content, setContent] = useState(block.content ?? {});
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   
-  // Sync
   useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
   const handleChange = (nc: any) => { setContent(nc); setIsDirty(true); };
 
@@ -708,20 +639,21 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
     } catch { alert("アップロード失敗"); }
   };
 
-  // Icons & Labels
-  const iconMap: any = { greeting: MessageSquare, program: Music, profile: User, gallery: Grid, free: Type };
-  const TypeIcon = iconMap[block.type] || Edit3;
   const labels: any = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", gallery: "ギャラリー", free: "フリーテキスト" };
   const badgeColors: any = { greeting: "text-orange-500 bg-orange-50", program: "text-blue-500 bg-blue-50", profile: "text-green-500 bg-green-50", gallery: "text-pink-500 bg-pink-50", free: "text-indigo-500 bg-indigo-50" };
+  const TypeIcon = { greeting: MessageSquare, program: Music, profile: User, gallery: Grid, free: Type }[block.type as string] || Edit3;
 
   return (
     <div className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {/* Handle */}
-           <div className="text-slate-300 hover:text-slate-500 p-2 -ml-2 touch-none cursor-grab active:cursor-grabbing" {...dragHandleProps} onClick={e => e.stopPropagation()}>
-             <GripVertical size={20}/>
-           </div>
+           {/* Sorting Buttons */}
+           {!isExpanded && (
+             <div className="flex flex-col gap-1 -ml-1" onClick={e=>e.stopPropagation()}>
+               <button onClick={() => onMove(block.id, 'up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0"><ArrowUp size={16}/></button>
+               <button onClick={() => onMove(block.id, 'down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0"><ArrowDown size={16}/></button>
+             </div>
+           )}
            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${badgeColors[block.type] || 'bg-slate-100'}`}>
              <TypeIcon size={20} />
            </div>
@@ -738,7 +670,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
       {isExpanded && (
         <div className="p-5 pt-0 animate-in slide-in-from-top-2 cursor-auto" onClick={e => e.stopPropagation()}>
            <div className="py-6 space-y-6 border-t border-slate-50">
-              {/* Simplified Content Rendering for brevity, keeping all logic */}
               {block.type === "greeting" && (
                 <>
                   <div className="flex gap-4">
