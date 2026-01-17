@@ -623,19 +623,19 @@ export default function EventEdit({ params }: Props) {
                         onClick={() => setPalettePreset("classic")}
                         className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "classic" ? "border-black" : "border-zinc-200"}`}
                       >
-                        Classic
+                        クラシック
                       </button>
                       <button
                         onClick={() => setPalettePreset("night")}
                         className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "night" ? "border-black" : "border-zinc-200"}`}
                       >
-                        Night
+                        ナイト
                       </button>
                       <button
                         onClick={() => setPalettePreset("modern")}
                         className={`h-11 rounded-xl border text-xs font-bold ${palettePreset === "modern" ? "border-black" : "border-zinc-200"}`}
                       >
-                        Modern
+                        モダン
                       </button>
                     </div>
                   </div>
@@ -676,24 +676,24 @@ export default function EventEdit({ params }: Props) {
                         onChange={(e) => setHeroVariant(e.target.value as any)}
                         className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
                       >
-                        <option value="poster">Hero: Poster</option>
-                        <option value="simple">Hero: Simple</option>
+                        <option value="poster">表紙：ポスター</option>
+                        <option value="simple">表紙：シンプル</option>
                       </select>
                       <select
                         value={cardVariant}
                         onChange={(e) => setCardVariant(e.target.value as any)}
                         className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
                       >
-                        <option value="glass">Card: Glass</option>
-                        <option value="plain">Card: Plain</option>
+                        <option value="glass">カード：ガラス</option>
+                        <option value="plain">カード：プレーン</option>
                       </select>
                       <select
                         value={programVariant}
                         onChange={(e) => setProgramVariant(e.target.value as any)}
                         className="h-11 rounded-xl border border-zinc-200 px-3 text-sm font-bold"
                       >
-                        <option value="timeline">Program: Timeline</option>
-                        <option value="list">Program: List</option>
+                        <option value="timeline">曲目：タイムライン</option>
+                        <option value="list">曲目：リスト</option>
                       </select>
                     </div>
                   </div>
@@ -714,29 +714,148 @@ export default function EventEdit({ params }: Props) {
                 {/* Preview */}
                 <div className="relative aspect-[3/4] rounded-xl overflow-hidden border shadow-inner">
                   {(() => {
-                    const t = buildTheme({ palettePreset, bgPreset, fontPreset, heroVariant, cardVariant, programVariant });
-                    return (
-                      <div
-                        className="w-full h-full p-5"
-                        style={{ backgroundColor: t.palette.bg, color: t.palette.text }}
-                      >
-                        {t.custom_css ? <style>{`.theme-preview{${t.custom_css}}`}</style> : null}
-                        <div className="theme-preview w-full h-full rounded-lg p-5" style={{ border: `1px solid ${t.palette.border}` }}>
-                          <div className="text-[10px] font-bold tracking-[0.25em] uppercase opacity-70">Preview</div>
-                          <div className="mt-2 text-xl font-extrabold leading-tight">{event.title}</div>
-                          <div className="mt-3 text-xs opacity-70">hero:{t.variants.hero} / card:{t.variants.card} / program:{t.variants.program}</div>
+  const t = buildTheme({
+    palettePreset,
+    bgPreset,
+    fontPreset,
+    heroVariant,
+    cardVariant,
+    programVariant,
+  });
 
-                          <div
-                            className="mt-5 rounded-xl p-4"
-                            style={{ backgroundColor: t.palette.card, border: `1px solid ${t.palette.border}` }}
-                          >
-                            <div className="text-xs font-bold" style={{ color: t.palette.accent }}>Card</div>
-                            <div className="mt-1 text-sm opacity-85">挨拶・プロフィール・曲目がここに入ります</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
+  const fontFamily =
+    t.typography?.body === "serif"
+      ? '"Times New Roman", "Noto Serif JP", "Hiragino Mincho ProN", serif'
+      : t.typography?.body === "rounded"
+      ? '"Zen Maru Gothic", "Hiragino Maru Gothic Pro", system-ui'
+      : '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif';
+
+  const isGlass = t.variants?.card === "glass";
+
+  return (
+    <div
+      className="theme-root w-full h-full p-5"
+      style={{
+        backgroundColor: t.palette.bg,
+        color: t.palette.text,
+        fontFamily,
+      }}
+    >
+      {/* custom_css is CSS declarations, so we scope it to .theme-root */}
+      {t.custom_css ? <style>{`.theme-root{${t.custom_css}}`}</style> : null}
+
+      <div className="w-full h-full rounded-lg overflow-hidden" style={{ border: `1px solid ${t.palette.border}` }}>
+        {/* HERO SAMPLE */}
+        {t.variants.hero === "poster" ? (
+          <div className="relative h-40">
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(0,0,0,0.35), rgba(0,0,0,0.75))",
+              }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.12), transparent 55%)",
+              }}
+            />
+            <div className="relative h-full p-4 flex flex-col justify-end">
+              <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-white/80">プレビュー</div>
+              <div className="mt-1 text-lg font-extrabold leading-tight text-white">{event.title}</div>
+              <div className="mt-1 text-[11px] text-white/75">2026/02/02 • ミューザ川崎</div>
+            </div>
+          </div>
+        ) : (
+          <div className="h-40 p-5 flex flex-col items-center justify-center text-center" style={{ backgroundColor: t.palette.bg }}>
+            <div className="text-[10px] font-bold tracking-[0.25em] uppercase opacity-70">プレビュー</div>
+            <div className="mt-2 text-lg font-extrabold leading-tight">{event.title}</div>
+            <div className="mt-2 text-[11px] opacity-70">2026/02/02 • ミューザ川崎</div>
+            <div className="mt-3 w-10 h-[3px] rounded-full" style={{ backgroundColor: t.palette.accent }} />
+          </div>
+        )}
+
+        {/* CONTENT SAMPLE */}
+        <div className="p-4 space-y-3">
+          <div className="text-[11px] font-bold opacity-70">
+            表紙：{t.variants.hero === "poster" ? "ポスター" : "シンプル"} / カード：{t.variants.card === "glass" ? "ガラス" : "プレーン"} / 曲目：{t.variants.program === "timeline" ? "タイムライン" : "リスト"}
+          </div>
+
+          {/* Sample Greeting Card */}
+          <div
+            className="rounded-xl p-4"
+            style={
+              isGlass
+                ? {
+                    backgroundColor: "color-mix(in srgb, white 70%, transparent)",
+                    border: `1px solid color-mix(in srgb, ${t.palette.border} 70%, transparent)`,
+                    backdropFilter: "blur(14px)",
+                    WebkitBackdropFilter: "blur(14px)",
+                  }
+                : {
+                    backgroundColor: t.palette.card,
+                    border: `1px solid ${t.palette.border}`,
+                  }
+            }
+          >
+            <div className="text-xs font-bold" style={{ color: t.palette.accent }}>
+              ご挨拶（サンプル）
+            </div>
+            <div className="mt-1 text-sm opacity-85 leading-relaxed">
+              本日はご来場ありがとうございます。どうぞ最後までごゆっくりお楽しみください。
+            </div>
+          </div>
+
+          {/* Sample Program */}
+          {t.variants.program === "timeline" ? (
+            <div className="relative pl-3">
+              <div className="absolute left-[10px] top-1 bottom-1 w-[2px] rounded-full" style={{ backgroundColor: t.palette.border }} />
+              {[
+                { title: "1. 作品A", composer: "作曲者A" },
+                { title: "2. 作品B", composer: "作曲者B" },
+                { title: "休憩", composer: "15分" },
+              ].map((it, idx) => (
+                <div key={idx} className="flex gap-3 items-start py-2">
+                  <div
+                    className="w-4 h-4 rounded-full mt-1 shrink-0"
+                    style={{ backgroundColor: idx === 1 ? t.palette.accent : t.palette.bg, border: `2px solid ${idx === 1 ? t.palette.accent : t.palette.border}` }}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold truncate">{it.title}</div>
+                    <div className="text-[11px] opacity-70 truncate">{it.composer}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              className="rounded-xl overflow-hidden"
+              style={{
+                backgroundColor: isGlass ? "color-mix(in srgb, white 70%, transparent)" : t.palette.card,
+                border: `1px solid ${t.palette.border}`,
+              }}
+            >
+              {[
+                { title: "1. 作品A", composer: "作曲者A" },
+                { title: "2. 作品B", composer: "作曲者B" },
+                { title: "休憩", composer: "15分" },
+              ].map((it, idx) => (
+                <div key={idx} className="p-3" style={{ borderTop: idx === 0 ? "none" : `1px solid ${t.palette.border}` }}>
+                  <div className="text-sm font-bold">{it.title}</div>
+                  <div className="text-[11px] opacity-70">{it.composer}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="pt-1 text-[10px] opacity-60">※保存するとViewer（/e/[slug]）に反映されます</div>
+        </div>
+      </div>
+    </div>
+  );
+})()}
                 </div>
               </div>
             </section>
