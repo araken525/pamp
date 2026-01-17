@@ -37,8 +37,31 @@ import {
   Mail,
   ArrowUp,
   ArrowDown,
-  ExternalLink
+  ExternalLink,
+  Twitter,
+  Instagram,
+  Globe,
+  Heart,
+  MessageCircle,
+  Settings2
 } from "lucide-react";
+
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,7 +72,6 @@ type Props = { params: Promise<{ id: string }> };
 type Tab = "edit" | "live";
 
 // --- Utility Components ---
-
 function InputField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="w-full">
@@ -77,10 +99,11 @@ export default function EventEdit({ params }: Props) {
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // Cover Image
+  // Cover Image & Footer Links
   const [uploadingCover, setUploadingCover] = useState(false);
   const [coverImageDraft, setCoverImageDraft] = useState<string | null>(null);
-  const [isCoverDirty, setIsCoverDirty] = useState(false);
+  const [footerLinks, setFooterLinks] = useState<{survey?: string, donation?: string}>({});
+  const [isEventDirty, setIsEventDirty] = useState(false);
 
   // Live Mode
   const [encoreRevealed, setEncoreRevealed] = useState(false);
@@ -109,7 +132,12 @@ export default function EventEdit({ params }: Props) {
     if (e1) { showMsg(e1.message, true); return; }
     setEvent(e);
     setCoverImageDraft(e.cover_image ?? null);
-    setIsCoverDirty(false);
+    
+    // Load footer links from theme (using theme as a JSON store for extras)
+    const theme = typeof e.theme === 'string' ? JSON.parse(e.theme) : (e.theme || {});
+    setFooterLinks(theme.footer_links || {});
+
+    setIsEventDirty(false);
     setEncoreRevealed(e.encore_revealed ?? false);
     const { data: b } = await supabase.from("blocks").select("*").eq("event_id", id).order("sort_order", { ascending: true });
     setBlocks(b ?? []);
@@ -122,16 +150,14 @@ export default function EventEdit({ params }: Props) {
     }
   }
 
-  // --- Sorting Logic (Buttons) ---
+  // --- Sorting ---
   async function moveBlock(blockId: string, dir: "up" | "down") {
     const idx = blocks.findIndex((b) => b.id === blockId);
     const to = dir === "up" ? idx - 1 : idx + 1;
     if (idx < 0 || to < 0 || to >= blocks.length) return;
-    
     const newBlocks = [...blocks];
     [newBlocks[idx], newBlocks[to]] = [newBlocks[to], newBlocks[idx]];
     setBlocks(newBlocks);
-    
     await Promise.all([
       supabase.from("blocks").update({ sort_order: (idx + 1) * 10 }).eq("id", newBlocks[idx].id),
       supabase.from("blocks").update({ sort_order: (to + 1) * 10 }).eq("id", newBlocks[to].id),
@@ -150,19 +176,28 @@ export default function EventEdit({ params }: Props) {
       if (error) throw error;
       const { data } = supabase.storage.from("pamp-images").getPublicUrl(`covers/${fileName}`);
       setCoverImageDraft(data.publicUrl);
-      setIsCoverDirty(true);
+      setIsEventDirty(true);
     } catch { showMsg("失敗しました", true); }
     finally { setUploadingCover(false); }
   }
 
-  async function saveCoverImage() {
-    if (!isCoverDirty) return;
+  async function saveEventMeta() {
+    if (!isEventDirty) return;
     setLoading(true);
-    const { error } = await supabase.from("events").update({ cover_image: coverImageDraft }).eq("id", id);
+    
+    // Save Links to Theme
+    const currentTheme = typeof event.theme === 'string' ? JSON.parse(event.theme) : (event.theme || {});
+    const newTheme = { ...currentTheme, footer_links: footerLinks };
+
+    const { error } = await supabase.from("events").update({ 
+      cover_image: coverImageDraft,
+      theme: newTheme
+    }).eq("id", id);
+
     if (!error) {
-      setEvent((prev: any) => ({ ...prev, cover_image: coverImageDraft }));
-      setIsCoverDirty(false);
-      showMsg("表紙を保存しました✨");
+      setEvent((prev: any) => ({ ...prev, cover_image: coverImageDraft, theme: newTheme }));
+      setIsEventDirty(false);
+      showMsg("設定を保存しました✨");
     }
     setLoading(false);
   }
@@ -185,65 +220,52 @@ export default function EventEdit({ params }: Props) {
     const targetId = `${blockId}-${itemIndex}`;
     const isCurrentlyActive = playingItemId === targetId;
     const nextState = !isCurrentlyActive;
-    
     setPlayingItemId(nextState ? targetId : null);
-
     items.forEach((it, idx) => {
         if (idx === itemIndex) it.active = nextState;
         else it.active = false; 
     });
-    
     const newBlocks = [...blocks];
     newBlocks[targetBlockIndex] = { ...targetBlock, content: { ...targetBlock.content, items } };
     setBlocks(newBlocks);
     await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
   }
 
-  // --- Break Logic (Fixed) ---
+  // --- Break Logic ---
   async function startBreak(minutes: number) {
-    // 1. Find the dedicated break block (or create a temporary one if logic allowed, but we'll stick to finding existing)
     let targetBlockId = null;
     let targetItemIndex = -1;
-
-    // Search for a Break item in the blocks
-    for (const b of blocks) {
-        if (b.type === "program" && b.content?.items) {
-            const idx = b.content.items.findIndex((it:any) => it.type === "break");
-            if (idx !== -1) {
-            targetBlockId = b.id;
-            targetItemIndex = idx;
-            // If there are multiple breaks, we might want to pick the one closest to current play, 
-            // but for safety, picking the first one is predictable.
-            // Or better: If a break is *currently* selected, use that.
-            if (playingItemId && playingItemId.startsWith(b.id)) {
-                // Current block has focus, check if it has a break
-                // This logic can be refined, but for now simple find is safer.
-            }
-            break;
-            }
-        }
+    // Find break block
+    if (playingItemId) {
+       const active = getActiveItemInfo();
+       if (active?.item.type === "break") {
+          targetBlockId = active.block.id;
+          targetItemIndex = active.index;
+       }
     }
-
+    if (!targetBlockId) {
+       for (const b of blocks) {
+          if (b.type === "program" && b.content?.items) {
+             const idx = b.content.items.findIndex((it:any) => it.type === "break");
+             if (idx !== -1) {
+                targetBlockId = b.id;
+                targetItemIndex = idx;
+                break;
+             }
+          }
+       }
+    }
     if (!targetBlockId) return showMsg("プログラム内に「休憩」項目を追加してください", true);
 
     const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
     const target = blocks[targetIndex];
     const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
-    
-    // Set timer on the target break item
-    newItems[targetItemIndex] = { 
-        ...newItems[targetItemIndex], 
-        timerEnd: end, 
-        duration: `${minutes}分`, 
-        active: true 
-    };
-    
+    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
     setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
     const newBlocks = [...blocks];
     newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
     setBlocks(newBlocks);
-
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
     showMsg(`${minutes}分の休憩を開始しました⏳`);
   }
@@ -251,24 +273,20 @@ export default function EventEdit({ params }: Props) {
   async function stopBreak() {
     if (!playingItemId) return;
     const active = getActiveItemInfo();
-    // Only stop if it's actually a break
     if (!active || active.item.type !== "break") return;
-
     const targetIndex = blocks.findIndex(b => b.id === active.block.id);
     const target = blocks[targetIndex];
     const newItems = [...target.content.items];
     newItems[active.index] = { ...newItems[active.index], timerEnd: null, active: false };
-
     setPlayingItemId(null);
     const newBlocks = [...blocks];
     newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
     setBlocks(newBlocks);
-
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
     showMsg("休憩を終了しました");
   }
 
-  // --- Add/Edit/Delete Logic ---
+  // --- Block Ops ---
   async function addBlock(type: string) {
     setIsAddMenuOpen(false);
     const { data: u } = await supabase.auth.getUser();
@@ -276,8 +294,8 @@ export default function EventEdit({ params }: Props) {
     const maxOrder = blocks.reduce((m, b) => Math.max(m, b.sort_order ?? 0), 0);
     let content = {};
     if (type === "greeting") content = { text: "", author: "", role: "", image: "" };
-    if (type === "program") content = { items: [{ type: "song", title: "", composer: "", description: "" }] };
-    if (type === "profile") content = { people: [{ name: "", role: "", bio: "", image: "" }] };
+    if (type === "program") content = { items: [{ type: "song", title: "", composer: "", performer: "", description: "" }] };
+    if (type === "profile") content = { people: [{ name: "", role: "", bio: "", image: "", sns: {} }] };
     if (type === "gallery") content = { title: "", images: [], caption: "" };
     if (type === "free") content = { title: "", text: "" };
 
@@ -329,7 +347,6 @@ export default function EventEdit({ params }: Props) {
     }
   };
 
-  // Helper
   const getActiveItemInfo = () => {
       if (!playingItemId) return null;
       const [bId, iIdxStr] = playingItemId.split("-");
@@ -341,10 +358,9 @@ export default function EventEdit({ params }: Props) {
       return { block, item, index: iIdx };
   };
   const activeInfo = getActiveItemInfo();
-  const viewerUrl = typeof window !== 'undefined' ? `${window.location.origin}/e/${event?.slug}` : '';
+  const displayCover = coverImageDraft ?? event?.cover_image;
 
   if (!event) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-slate-400" /></div>;
-  const displayCover = coverImageDraft ?? event.cover_image;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900" ref={pageRef}>
@@ -365,14 +381,13 @@ export default function EventEdit({ params }: Props) {
         {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
       </div>
 
-      {/* SHARE MODAL (No HTML2Canvas, just functional) */}
+      {/* SHARE MODAL */}
       {showShareModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in" onClick={() => setShowShareModal(false)}>
            <div className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
               <div className="bg-slate-50 p-8 flex flex-col items-center text-center">
                  <h3 className="font-bold text-lg text-slate-800 mb-6">プログラムを配布</h3>
                  {qrCodeData && <img src={qrCodeData} alt="QR" className="w-48 h-48 mb-6 mix-blend-multiply border rounded-xl" />}
-                 
                  <div className="grid grid-cols-3 gap-3 w-full">
                     <button onClick={handleShareLine} className="flex flex-col items-center gap-2 p-3 bg-[#06C755]/10 rounded-2xl hover:bg-[#06C755]/20 active:scale-95 transition-all">
                        <div className="w-10 h-10 bg-[#06C755] rounded-full flex items-center justify-center text-white"><ExternalLink size={20}/></div>
@@ -406,10 +421,11 @@ export default function EventEdit({ params }: Props) {
                <div className="w-12 h-1 bg-indigo-500 rounded-full mx-auto mt-2 opacity-20"></div>
             </div>
 
-            <div>
-               <label className="block text-[10px] font-bold text-slate-400 mb-1.5 ml-1 tracking-wider uppercase">カバー画像</label>
-               <section className="bg-white rounded-[2rem] overflow-hidden shadow-sm border border-slate-100">
-                  <div className="relative aspect-[16/9] bg-slate-50 group">
+            {/* Event Settings (Cover & Footer Links) */}
+            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100 space-y-6">
+               <div>
+                  <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
+                  <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
                      {displayCover ? (
                      // eslint-disable-next-line @next/next/no-img-element
                      <img src={displayCover} className="w-full h-full object-cover" alt="" />
@@ -423,14 +439,40 @@ export default function EventEdit({ params }: Props) {
                      <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
                      </label>
                   </div>
-                  {isCoverDirty && (
-                     <div className="p-3 bg-orange-50 flex justify-end">
-                     <button onClick={saveCoverImage} disabled={loading} className="bg-slate-900 text-white px-5 py-2 rounded-full text-xs font-bold shadow active:scale-95">保存する</button>
-                     </div>
-                  )}
-               </section>
-            </div>
+               </div>
 
+               <div>
+                 <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">アクションボタン設定 (任意)</label>
+                 <div className="space-y-3">
+                   <div className="flex items-center gap-3 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                     <MessageCircle size={18} className="text-slate-400"/>
+                     <input 
+                       className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-300"
+                       placeholder="アンケートURL (Google Formなど)" 
+                       value={footerLinks.survey || ""}
+                       onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }}
+                     />
+                   </div>
+                   <div className="flex items-center gap-3 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                     <Heart size={18} className="text-slate-400"/>
+                     <input 
+                       className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-300"
+                       placeholder="寄付・支援URL" 
+                       value={footerLinks.donation || ""}
+                       onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }}
+                     />
+                   </div>
+                 </div>
+               </div>
+
+               {isEventDirty && (
+                 <div className="flex justify-end pt-2">
+                   <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
+                 </div>
+               )}
+            </section>
+
+            {/* Blocks */}
             <div className="space-y-4">
                 {blocks.map((b, i) => (
                     <BlockCard 
@@ -448,17 +490,15 @@ export default function EventEdit({ params }: Props) {
                 <p className="text-xs mt-1">「＋」ボタンで追加してください</p>
               </div>
             )}
-            <div className="h-20" />
+            <div className="h-24" />
           </div>
         )}
 
-        {/* === LIVE TAB (Redesigned Cockpit v2) === */}
+        {/* === LIVE TAB === */}
         {activeTab === "live" && (
           <div className="h-full flex flex-col relative bg-slate-50">
-            
-            {/* 1. STATUS & CONTROLS (Top Fixed) */}
+            {/* 1. Status */}
             <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-30">
-               {/* Encore Status Row */}
                <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                      <div className={`w-2 h-2 rounded-full ${encoreRevealed ? 'bg-pink-500 animate-pulse' : 'bg-slate-300'}`}></div>
@@ -466,8 +506,6 @@ export default function EventEdit({ params }: Props) {
                   </div>
                   <button onClick={toggleEncore} className={`px-4 py-1.5 rounded-full font-bold text-[10px] border active:scale-95 transition-all ${encoreRevealed?'bg-pink-500 text-white border-pink-500':'bg-white text-slate-500 border-slate-200'}`}>切り替え</button>
                </div>
-
-               {/* Break Controls Row */}
                <div className="p-4 bg-slate-50/50">
                   {activeInfo?.item.type === "break" ? (
                      <div className="flex items-center gap-4 bg-orange-50 border border-orange-100 p-3 rounded-2xl animate-in slide-in-from-top-1">
@@ -484,9 +522,7 @@ export default function EventEdit({ params }: Props) {
                               })()}
                            </div>
                         </div>
-                        <button onClick={stopBreak} className="h-10 px-5 bg-red-500 text-white rounded-xl font-bold text-xs shadow active:scale-95 flex items-center gap-1">
-                           <StopCircle size={14} /> 終了
-                        </button>
+                        <button onClick={stopBreak} className="h-10 px-5 bg-red-500 text-white rounded-xl font-bold text-xs shadow active:scale-95 flex items-center gap-1"><StopCircle size={14} /> 終了</button>
                      </div>
                   ) : (
                      <div className="flex flex-col gap-2">
@@ -504,7 +540,7 @@ export default function EventEdit({ params }: Props) {
                </div>
             </div>
 
-            {/* 2. PROGRAM LIST (Scrollable) */}
+            {/* 2. Program List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-1">
                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 pl-1">プログラム</h3>
                {blocks.filter(b => b.type === "program").map(block => (
@@ -514,33 +550,21 @@ export default function EventEdit({ params }: Props) {
                         const isBreak = item.type === "break";
                         if (item.type === "section") return <div key={i} className="pt-6 pb-2 pl-2 text-sm font-bold text-slate-500 border-b border-slate-200 mb-2">{item.title}</div>;
                         if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-50 text-yellow-800 text-xs rounded border border-yellow-200">📝 {item.title}</div>;
-
                         return (
                            <div key={i} className={`p-3 flex items-center gap-3 transition-colors rounded-lg ${isActive ? 'bg-indigo-50' : 'bg-transparent'}`}>
-                              {/* Icon */}
                               <div className="shrink-0 w-8 flex justify-center">
-                                 {isActive ? (
-                                    isBreak ? <Coffee size={18} className="text-orange-500"/> : <MonitorPlay size={18} className="text-indigo-600 animate-pulse"/>
-                                 ) : (
-                                    <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-                                 )}
+                                 {isActive ? (isBreak ? <Coffee size={18} className="text-orange-500"/> : <MonitorPlay size={18} className="text-indigo-600 animate-pulse"/>) : (<div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>)}
                               </div>
-                              
-                              {/* Content */}
                               <div className="flex-1 min-w-0" onClick={() => !isBreak && toggleActiveItem(block.id, i)}>
                                  <div className={`text-sm ${isActive ? 'font-bold text-indigo-900' : 'font-medium text-slate-700'}`}>{item.title}</div>
                                  <div className="text-xs text-slate-400 mt-0.5">{isBreak ? `休憩 ${item.duration}` : item.composer}</div>
                               </div>
-
-                              {/* Action (Toggle Play for Songs only) */}
                               {!isBreak && (
                                  <button onClick={() => toggleActiveItem(block.id, i)} className={`shrink-0 p-2 rounded-full ${isActive ? 'bg-indigo-200 text-indigo-700' : 'text-slate-300 hover:bg-slate-100'}`}>
                                     {isActive ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}
                                  </button>
                               )}
-                              {isBreak && isActive && (
-                                 <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-1 rounded">進行中</span>
-                              )}
+                              {isBreak && isActive && <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-1 rounded">進行中</span>}
                            </div>
                         )
                      })}
@@ -548,12 +572,11 @@ export default function EventEdit({ params }: Props) {
                ))}
                <div className="h-20"/>
             </div>
-
           </div>
         )}
       </main>
 
-      {/* FAB & MENU */}
+      {/* FAB */}
       {activeTab === "edit" && (
         <>
           <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
@@ -604,7 +627,6 @@ function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
   );
 }
 
-// --- ACCORDION BLOCK CARD ---
 function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete, onMove, supabaseClient }: any) {
   const [content, setContent] = useState(block.content ?? {});
   const [isDirty, setIsDirty] = useState(false);
@@ -647,7 +669,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
     <div className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {/* Sorting Buttons */}
            {!isExpanded && (
              <div className="flex flex-col gap-1 -ml-1" onClick={e=>e.stopPropagation()}>
                <button onClick={() => onMove(block.id, 'up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0"><ArrowUp size={16}/></button>
@@ -717,12 +738,27 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                       <div className="flex-1 space-y-2 pr-8">
                         <input className="w-full bg-white px-3 py-2 rounded-lg text-base font-bold outline-none" placeholder="名前" value={p.name} onChange={e => {const np=[...content.people]; np[i].name=e.target.value; handleChange({...content, people:np})}} />
                         <input className="w-full bg-white px-3 py-2 rounded-lg text-sm outline-none" placeholder="役割" value={p.role} onChange={e => {const np=[...content.people]; np[i].role=e.target.value; handleChange({...content, people:np})}} />
+                        {/* SNS Inputs */}
+                        <div className="flex gap-2">
+                           <div className="flex-1 flex items-center bg-white px-2 rounded-lg border border-slate-200">
+                              <Twitter size={14} className="text-slate-400 mr-2"/>
+                              <input className="w-full py-1.5 text-xs outline-none" placeholder="X (Twitter) URL" value={p.sns?.twitter||""} onChange={e=>{const np=[...content.people]; np[i].sns={...p.sns, twitter:e.target.value}; handleChange({...content, people:np})}}/>
+                           </div>
+                           <div className="flex-1 flex items-center bg-white px-2 rounded-lg border border-slate-200">
+                              <Instagram size={14} className="text-slate-400 mr-2"/>
+                              <input className="w-full py-1.5 text-xs outline-none" placeholder="Insta URL" value={p.sns?.instagram||""} onChange={e=>{const np=[...content.people]; np[i].sns={...p.sns, instagram:e.target.value}; handleChange({...content, people:np})}}/>
+                           </div>
+                           <div className="flex-1 flex items-center bg-white px-2 rounded-lg border border-slate-200">
+                              <Globe size={14} className="text-slate-400 mr-2"/>
+                              <input className="w-full py-1.5 text-xs outline-none" placeholder="Web URL" value={p.sns?.website||""} onChange={e=>{const np=[...content.people]; np[i].sns={...p.sns, website:e.target.value}; handleChange({...content, people:np})}}/>
+                           </div>
+                        </div>
                         <textarea className="w-full bg-white px-3 py-2 rounded-lg text-sm h-20 outline-none resize-none" placeholder="紹介文" value={p.bio} onChange={e => {const np=[...content.people]; np[i].bio=e.target.value; handleChange({...content, people:np})}} />
                       </div>
                       <button onClick={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})} className="absolute top-3 right-3 p-2 bg-slate-100 rounded-full text-slate-300 hover:text-red-500"><Trash2 size={18}/></button>
                     </div>
                   ))}
-                  <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:""}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm">+ 出演者を追加</button>
+                  <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:"", sns:{}}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm">+ 出演者を追加</button>
                 </div>
               )}
               {block.type === "program" && (
@@ -756,12 +792,15 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                                             {item.type === "break" ? (
                                                 <InputField label="目安時間"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="例: 15分" value={item.duration} onChange={e => { const ni=[...content.items]; ni[i].duration=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
                                             ) : (
-                                                <div className="grid grid-cols-3 gap-3">
-                                                    <div className="col-span-2"><InputField label="作曲者"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="Artist" value={item.composer} onChange={e => { const ni=[...content.items]; ni[i].composer=e.target.value; handleChange({...content, items:ni}); }} /></InputField></div>
-                                                    <div className="col-span-1 flex items-end pb-1.5 justify-end">
-                                                        <button onClick={() => { const ni=[...content.items]; ni[i].isEncore=!ni[i].isEncore; handleChange({...content, items:ni}); }} className={`flex flex-col items-center justify-center w-full py-2 rounded-xl border transition-all ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-300 grayscale'}`}><Star size={20} fill={item.isEncore ? "currentColor" : "none"} /><span className="text-[10px] font-bold mt-1">アンコール</span></button>
-                                                    </div>
-                                                </div>
+                                                <>
+                                                  <div className="grid grid-cols-2 gap-3">
+                                                      <InputField label="作曲者"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="Artist" value={item.composer} onChange={e => { const ni=[...content.items]; ni[i].composer=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
+                                                      <InputField label="演奏者"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="Performer" value={item.performer||""} onChange={e => { const ni=[...content.items]; ni[i].performer=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
+                                                  </div>
+                                                  <div className="flex justify-end pt-1">
+                                                      <button onClick={() => { const ni=[...content.items]; ni[i].isEncore=!ni[i].isEncore; handleChange({...content, items:ni}); }} className={`flex items-center gap-1 px-3 py-1.5 rounded-full border transition-all ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-300 grayscale'}`}><Star size={14} fill={item.isEncore ? "currentColor" : "none"} /><span className="text-[10px] font-bold">アンコール</span></button>
+                                                  </div>
+                                                </>
                                             )}
                                             {item.type !== "break" && <InputField label="曲解説"><textarea className="w-full bg-white px-3 py-3 rounded-xl text-sm h-20 outline-none resize-none" placeholder="解説..." value={item.description} onChange={e => { const ni=[...content.items]; ni[i].description=e.target.value; handleChange({...content, items:ni}); }} /></InputField>}
                                         </div>
