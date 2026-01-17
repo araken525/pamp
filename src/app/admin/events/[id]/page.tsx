@@ -20,12 +20,15 @@ import {
   Coffee,
   Play,
   Pause,
+  Edit3, // ← これを追加しました！
   MonitorPlay,
   Share2,
   Grid,
   X,
   ChevronDown,
+  ChevronUp,
   Type,
+  List,
   Star,
   StopCircle,
   Copy,
@@ -40,6 +43,8 @@ import {
   MessageCircle,
   Settings,
   Link as LinkIcon,
+  Check,
+  Smartphone,
   GripVertical
 } from "lucide-react";
 
