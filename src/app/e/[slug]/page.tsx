@@ -17,6 +17,8 @@ import {
   Clock,
   Sparkles,
   Glasses,
+  Info,
+  Grid,
 } from "lucide-react";
 
 // ▼ Supabaseクライアント
@@ -26,7 +28,6 @@ const supabase = createClient(
 );
 
 // ---- helpers ----
-// テーマJSONは「アクセントカラー」の取得だけに使います（デザイン分岐は廃止）
 function safeParseTheme(raw: any) {
   if (!raw) return null;
   if (typeof raw === "object") return raw;
@@ -40,26 +41,20 @@ function safeParseTheme(raw: any) {
   return null;
 }
 
-// CSS生成：色はDBから拾いますが、デザインの質感はここで「固定」します
+// デザインは「クラシック・紙」で固定
 function varCss(palette: any) {
   const p = palette ?? {};
-  // デフォルトを「クラシック・紙デザイン」に固定
   const accent = p.accent ?? "#B48E55"; // 金・茶系
-  const text = "#2C241B"; // 濃い焦げ茶（墨色）
-  const bg = "#F5F2E8";   // クリーム色の紙色
-  const card = "#F5F2E8"; // カードも同色（紙に馴染ませる）
-  const border = "#E6DCC3"; // 薄い茶色
-
+  
   return `
 :root {
-  --bg: ${bg};
-  --card: ${card};
-  --text: ${text};
+  --bg: #F5F2E8;
+  --card: #F5F2E8;
+  --text: #2C241B;
   --muted: #8c8273;
   --accent: ${accent};
-  --border: ${border};
+  --border: #E6DCC3;
   
-  /* シアターモード用の変数（JS制御） */
   --theater-bg: #1a1614;
   --theater-text: #e6e0d4;
   --theater-card: #2c241f;
@@ -73,7 +68,6 @@ function varCss(palette: any) {
   --border: var(--theater-border) !important;
 }
 
-/* アニメーション */
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -82,7 +76,6 @@ function varCss(palette: any) {
   animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
-/* 紙の質感テクスチャ（固定） */
 .bg-paper-texture {
   background-image: url("https://www.transparenttextures.com/patterns/cream-paper.png");
   background-attachment: fixed;
@@ -100,7 +93,7 @@ export default function EventViewer({ params }: Props) {
   const [loading, setLoading] = useState(true);
   const [theaterMode, setTheaterMode] = useState(false);
 
-  // ---- load + realtime (ここは絶対に削らない：約束の機能) ----
+  // ---- Load + Realtime ----
   useEffect(() => {
     let channel: any;
 
@@ -131,7 +124,6 @@ export default function EventViewer({ params }: Props) {
       await fetchBlocks();
       setLoading(false);
 
-      // リアルタイム更新の購読
       channel = supabase
         .channel("viewer-updates")
         .on(
@@ -152,7 +144,6 @@ export default function EventViewer({ params }: Props) {
     };
   }, [slug]);
 
-  // ---- theme ----
   const theme = useMemo(() => safeParseTheme(event?.theme) ?? {}, [event?.theme]);
   const cssVars = useMemo(() => varCss(theme.palette), [theme]);
 
@@ -165,7 +156,6 @@ export default function EventViewer({ params }: Props) {
   }
   if (!event) return notFound();
 
-  // フォントは明朝体（Serif）で固定
   const fontFamily = `"Times New Roman", "Noto Serif JP", "Hiragino Mincho ProN", serif`;
 
   return (
@@ -180,7 +170,7 @@ export default function EventViewer({ params }: Props) {
     >
       <style>{cssVars + (theme.custom_css ?? "")}</style>
 
-      {/* シアターモード切替スイッチ */}
+      {/* Theater Toggle */}
       <div className="fixed top-4 right-4 z-50">
         <button
           onClick={() => setTheaterMode(!theaterMode)}
@@ -197,7 +187,7 @@ export default function EventViewer({ params }: Props) {
         </button>
       </div>
 
-      {/* HERO (Layered Style 固定) */}
+      {/* HERO */}
       <div className="animate-enter">
         <HeroFixed event={event} />
       </div>
@@ -232,7 +222,7 @@ export default function EventViewer({ params }: Props) {
   );
 }
 
-// ---------------- UI COMPONENTS (固定デザイン版) ----------------
+// ---------------- UI COMPONENTS ----------------
 
 function SectionTitle({ title, subtitle }: any) {
   return (
@@ -264,8 +254,12 @@ function HeroFixed({ event }: any) {
           />
         </>
       ) : (
-        <div className="w-full h-full bg-slate-200 flex items-center justify-center">
-          <ImageIcon className="opacity-20 w-24 h-24" />
+        <div className="w-full h-full bg-zinc-100 flex items-center justify-center">
+           {/* 画像がない時の表示: ミニマルなパターン */}
+           <div className="text-center opacity-30 p-10">
+              <div className="text-4xl font-serif mb-4 tracking-widest">{event.title}</div>
+              <div className="w-16 h-[1px] bg-current mx-auto"></div>
+           </div>
         </div>
       )}
 
@@ -276,7 +270,7 @@ function HeroFixed({ event }: any) {
           </span>
         </div>
         
-        <h1 className="text-4xl md:text-5xl font-medium leading-tight tracking-tight drop-shadow-sm mb-4 text-[var(--text)]">
+        <h1 className="text-3xl md:text-5xl font-medium leading-tight tracking-tight drop-shadow-sm mb-4 text-[var(--text)]">
           {event.title}
         </h1>
         
@@ -303,28 +297,31 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
   const type = block.type;
   const content = block.content ?? {};
 
-  // --- Greeting (雑誌風レイアウト固定) ---
+  // --- Greeting (強化版) ---
   if (type === "greeting") {
     if (!content.text) return null;
     return (
       <div className="py-4">
         <SectionTitle title="ご挨拶" subtitle="Greeting" />
         <div className="flex flex-col md:flex-row gap-6 items-start">
-           <div className="shrink-0 mx-auto md:mx-0">
-              <div className="w-32 h-40 bg-[var(--muted)]/10 rounded-sm overflow-hidden border border-[var(--border)] shadow-sm">
-                 {content.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={content.image} className="w-full h-full object-cover" alt="Speaker"/>
-                 ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[var(--muted)]"><User size={40}/></div>
-                 )}
-              </div>
-              {content.author && (
-                <div className="mt-2 text-center text-xs font-bold tracking-wider">{content.author}</div>
-              )}
-           </div>
+           {content.image && (
+             <div className="shrink-0 mx-auto md:mx-0">
+                <div className="w-32 h-40 bg-[var(--muted)]/10 rounded-sm overflow-hidden border border-[var(--border)] shadow-sm">
+                   {/* eslint-disable-next-line @next/next/no-img-element */}
+                   <img src={content.image} className="w-full h-full object-cover" alt="Speaker"/>
+                </div>
+             </div>
+           )}
            
-           <div className="flex-1">
+           <div className="flex-1 w-full">
+              {/* 名前と役職がある場合のみ表示 */}
+              {(content.author || content.role) && (
+                <div className="mb-4 text-center md:text-left">
+                   <div className="text-sm font-bold tracking-widest">{content.author}</div>
+                   <div className="text-[10px] opacity-60 uppercase tracking-widest mt-1">{content.role}</div>
+                </div>
+              )}
+              
               <div className="h-[1px] w-full bg-[var(--border)] mb-4 opacity-50"/>
               <p className="text-[15px] leading-8 text-justify whitespace-pre-wrap opacity-90">
                 {content.text}
@@ -336,23 +333,49 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
     );
   }
 
-  // --- Image (ポラロイド風固定) ---
-  if (type === "image") {
-    if (!content.url) return null;
+  // --- Free Topic (新設) ---
+  if (type === "free") {
+    if (!content.text && !content.title) return null;
     return (
-      <figure className="relative overflow-hidden my-8 rounded-sm shadow-md border border-[var(--border)] bg-white p-2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={content.url} alt="" className="w-full h-auto object-cover filter sepia-[0.2]" />
-        {content.caption && (
-          <figcaption className="text-[var(--text)] p-3 text-xs text-center tracking-wider italic opacity-70">
-            {content.caption}
-          </figcaption>
-        )}
-      </figure>
+      <div className="py-4">
+        <SectionTitle title={content.title || "Information"} subtitle="Topic" />
+        <div className="p-6 border border-[var(--border)] bg-[var(--card)] shadow-sm rounded-sm">
+           <p className="text-[15px] leading-8 text-justify whitespace-pre-wrap opacity-90">
+             {content.text}
+           </p>
+        </div>
+      </div>
     );
   }
 
-  // --- Profile (カード風固定) ---
+  // --- Gallery (進化版) ---
+  if (type === "gallery") {
+    const images = content.images ?? (content.url ? [content.url] : []); // 旧データ互換
+    if (!images.length) return null;
+
+    return (
+      <div className="py-4">
+        {content.title && <SectionTitle title={content.title} subtitle="Gallery" />}
+        
+        <div className="grid grid-cols-1 gap-6">
+          {images.map((url: string, idx: number) => (
+             <figure key={idx} className="relative overflow-hidden rounded-sm shadow-md border border-[var(--border)] bg-white p-2">
+               {/* eslint-disable-next-line @next/next/no-img-element */}
+               <img src={url} alt="" className="w-full h-auto object-cover filter sepia-[0.2]" />
+               {/* 最後の画像の時だけキャプション表示（簡易実装） */}
+               {idx === images.length - 1 && content.caption && (
+                 <figcaption className="text-[var(--text)] p-3 text-xs text-center tracking-wider italic opacity-70">
+                   {content.caption}
+                 </figcaption>
+               )}
+             </figure>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // --- Profile ---
   if (type === "profile") {
     const people = content.people ?? [];
     if (!people.length) return null;
@@ -368,7 +391,7 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-300"><User size={40} /></div>
+                  <div className="w-full h-full flex items-center justify-center text-[var(--muted)] opacity-20"><User size={40} /></div>
                 )}
               </div>
               <div className="p-5 flex-1 flex flex-col justify-center text-center">
@@ -377,7 +400,7 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
                   {p.role}
                 </div>
                 {p.bio && (
-                  <p className="text-sm leading-6 opacity-80 whitespace-pre-wrap">
+                  <p className="text-sm leading-6 opacity-80 whitespace-pre-wrap text-justify">
                     {p.bio}
                   </p>
                 )}
@@ -389,7 +412,7 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
     );
   }
 
-  // --- Program (オーナメント・リスト固定) ---
+  // --- Program ---
   if (type === "program") {
     const items = content.items ?? [];
     if (!items.length) return null;
@@ -413,6 +436,7 @@ function BlockViewFixed({ block, encoreRevealed }: any) {
   return null;
 }
 
+// 休憩タイマー機能付きアイテム
 function ProgramItemFixed({ item, encoreRevealed }: any) {
   const [open, setOpen] = useState(false);
   
@@ -421,14 +445,51 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
   const isBreak = item.type === "break";
   const active = item.active === true;
   
+  // 休憩タイマーロジック
+  const TimerDisplay = () => {
+    const [timeLeft, setTimeLeft] = useState<string | null>(null);
+
+    useEffect(() => {
+      if (!item.timerEnd) return;
+      const interval = setInterval(() => {
+        const end = new Date(item.timerEnd).getTime();
+        const now = new Date().getTime();
+        const diff = end - now;
+
+        if (diff <= 0) {
+           setTimeLeft(null); // 時間切れ
+           clearInterval(interval);
+        } else {
+           const m = Math.floor(diff / 60000);
+           const s = Math.floor((diff % 60000) / 1000);
+           setTimeLeft(`${m}:${s.toString().padStart(2, "0")}`);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }, []);
+
+    if (!timeLeft) return <span className="text-[10px]">{item.duration}</span>;
+
+    return (
+      <div className="flex flex-col items-center">
+         <div className="text-xs font-bold text-[var(--accent)] animate-pulse">再開まで</div>
+         <div className="text-xl font-bold font-mono tracking-widest">{timeLeft}</div>
+      </div>
+    );
+  };
+
   if (isBreak) {
     return (
-      <div className="py-10 flex items-center justify-center gap-4 opacity-60">
+      <div className="py-10 flex items-center justify-center gap-4 opacity-70">
         <div className="h-[1px] w-12 bg-[var(--text)] opacity-30" />
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-2 min-w-[100px]">
           <Coffee size={18} />
           <span className="text-xs font-bold tracking-[0.2em] uppercase">Intermission</span>
-          {item.duration && <span className="text-[10px]">{item.duration}</span>}
+          {item.timerEnd && new Date(item.timerEnd).getTime() > Date.now() ? (
+             <TimerDisplay />
+          ) : (
+             item.duration && <span className="text-[10px]">{item.duration}</span>
+          )}
         </div>
         <div className="h-[1px] w-12 bg-[var(--text)] opacity-30" />
       </div>
@@ -442,7 +503,6 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
         className="cursor-pointer py-4 px-2 hover:bg-[var(--accent)]/5 rounded-sm transition-colors"
       >
         <div className="flex items-baseline gap-4">
-          {/* ドット装飾 */}
           <div className={`w-1.5 h-1.5 rounded-full shrink-0 transform translate-y-[-2px] 
             ${active ? "bg-[var(--accent)] animate-pulse shadow-[0_0_8px_var(--accent)]" : "bg-[var(--accent)]/40"}`} 
           />
@@ -475,7 +535,6 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
           <ChevronDown size={16} className={`opacity-30 transition-transform ${open ? "rotate-180" : ""}`} />
         </div>
 
-        {/* 解説展開 */}
         <div className={`grid transition-all duration-300 ${open ? "grid-rows-[1fr] mt-4 opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
           <div className="overflow-hidden">
              <div className="pl-6 border-l border-[var(--border)] ml-2">
@@ -487,7 +546,6 @@ function ProgramItemFixed({ item, encoreRevealed }: any) {
         </div>
       </div>
       
-      {/* 境界線（薄く） */}
       <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-[var(--border)] to-transparent opacity-50 mt-1" />
     </div>
   );

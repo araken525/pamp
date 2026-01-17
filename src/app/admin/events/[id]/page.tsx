@@ -26,18 +26,21 @@ import {
   Unlock,
   Edit3,
   MonitorPlay,
+  Share2,
+  Info,
+  Grid,
   X,
-  ChevronRight,
+  Clock,
+  QrCode
 } from "lucide-react";
 
-// ▼ Supabaseクライアント
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 type Props = { params: Promise<{ id: string }> };
-type Tab = "edit" | "live"; // デザインタブは削除
+type Tab = "edit" | "live";
 
 export default function EventEdit({ params }: Props) {
   const { id } = use(params);
@@ -50,8 +53,9 @@ export default function EventEdit({ params }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
-  // Cover Image (Designタブから移動)
+  // Cover Image
   const [uploadingCover, setUploadingCover] = useState(false);
   const [coverImageDraft, setCoverImageDraft] = useState<string | null>(null);
   const [isCoverDirty, setIsCoverDirty] = useState(false);
@@ -62,11 +66,6 @@ export default function EventEdit({ params }: Props) {
   // UI State
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
 
-  // Drag refs
-  const dragItem = useRef<number | null>(null);
-  const dragOverItem = useRef<number | null>(null);
-
-  // --- Init ---
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,68 +79,42 @@ export default function EventEdit({ params }: Props) {
 
   async function load() {
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) {
-      showMsg("未ログインです", true);
-      return;
-    }
+    if (!u.user) return; // 簡易ログインチェック
 
-    // Load Event
     const { data: e, error: e1 } = await supabase.from("events").select("*").eq("id", id).single();
-    if (e1) {
-      showMsg(e1.message, true);
-      return;
-    }
+    if (e1) { showMsg(e1.message, true); return; }
     setEvent(e);
     setCoverImageDraft(e.cover_image ?? null);
     setIsCoverDirty(false);
     setEncoreRevealed(e.encore_revealed ?? false);
 
-    // Load Blocks
-    const { data: b, error: e2 } = await supabase
-      .from("blocks")
-      .select("*")
-      .eq("event_id", id)
-      .order("sort_order", { ascending: true });
-
-    if (e2) {
-      showMsg(e2.message, true);
-      return;
-    }
-    setBlocks(b ?? []);
+    const { data: b, error: e2 } = await supabase.from("blocks").select("*").eq("event_id", id).order("sort_order", { ascending: true });
+    if (!e2) setBlocks(b ?? []);
   }
 
-  // --- Actions: Cover Image ---
+  // --- Cover Image ---
   async function handleCoverUpload(e: any) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setUploadingCover(true);
     try {
       const ext = file.name.split(".").pop();
       const fileName = `cover_${Date.now()}.${ext}`;
-      const filePath = `covers/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage.from("pamp-images").upload(filePath, file);
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from("pamp-images").getPublicUrl(filePath);
+      const { error } = await supabase.storage.from("pamp-images").upload(`covers/${fileName}`, file);
+      if (error) throw error;
+      const { data } = supabase.storage.from("pamp-images").getPublicUrl(`covers/${fileName}`);
       setCoverImageDraft(data.publicUrl);
       setIsCoverDirty(true);
-    } catch (err: any) {
-      showMsg(`アップロード失敗: ${err.message}`, true);
-    } finally {
-      setUploadingCover(false);
-    }
+    } catch (err: any) { showMsg("アップロード失敗", true); } 
+    finally { setUploadingCover(false); }
   }
 
   async function saveCoverImage() {
     if (!isCoverDirty) return;
     setLoading(true);
-
     const { error } = await supabase.from("events").update({ cover_image: coverImageDraft }).eq("id", id);
-    if (error) {
-      showMsg(`保存失敗: ${error.message}`, true);
-    } else {
+    if (error) showMsg("エラー", true);
+    else {
       setEvent((prev: any) => ({ ...prev, cover_image: coverImageDraft }));
       setIsCoverDirty(false);
       showMsg("カバー画像を保存しました");
@@ -149,77 +122,69 @@ export default function EventEdit({ params }: Props) {
     setLoading(false);
   }
 
-  // --- Actions: Live Mode ---
+  // --- Live Actions ---
   async function toggleEncore() {
     const next = !encoreRevealed;
     setEncoreRevealed(next);
-    const { error } = await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
-    if (error) {
-      showMsg("エラーが発生しました", true);
-      setEncoreRevealed(!next);
-    } else {
-      showMsg(next ? "アンコールを公開しました" : "アンコールを非公開にしました");
-    }
+    await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
+    showMsg(next ? "アンコール公開" : "アンコール非公開");
   }
 
   async function toggleActiveItem(blockId: string, itemIndex: number) {
     const target = blocks.find((b) => b.id === blockId);
     if (!target?.content?.items) return;
-
     const items = target.content.items;
     const isCurrentlyActive = items[itemIndex]?.active === true;
-    const newItems = items.map((it: any, idx: number) => ({
-      ...it,
-      active: idx === itemIndex ? !isCurrentlyActive : false,
-    }));
-
-    // optimistic update
-    setBlocks((prev) =>
-      prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b))
-    );
-
-    const { error } = await supabase
-      .from("blocks")
-      .update({ content: { ...target.content, items: newItems } })
-      .eq("id", blockId);
-      
-    if (error) load(); // revert on error
+    const newItems = items.map((it: any, idx: number) => ({ ...it, active: idx === itemIndex ? !isCurrentlyActive : false }));
+    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b)));
+    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
   }
 
-  // --- Actions: Blocks ---
+  // 休憩タイマー開始
+  async function startBreakTimer(blockId: string, itemIndex: number, minutes: number) {
+    const target = blocks.find((b) => b.id === blockId);
+    if (!target?.content?.items) return;
+    
+    // 現在時刻 + 指定分
+    const end = new Date(Date.now() + minutes * 60000).toISOString();
+    
+    const newItems = [...target.content.items];
+    newItems[itemIndex] = { ...newItems[itemIndex], timerEnd: end };
+    
+    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content: { ...b.content, items: newItems } } : b)));
+    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", blockId);
+    showMsg(`休憩タイマー開始 (${minutes}分)`);
+  }
+
+  // --- Block Actions ---
   function nextSortOrder() {
     const max = blocks.reduce((m, b) => Math.max(m, b.sort_order ?? 0), 0);
     return max + 10;
   }
 
-  function defaultContent(type: string) {
-    if (type === "greeting") return { text: "" };
-    if (type === "program")
-      return { items: [{ type: "song", title: "", composer: "", description: "", isEncore: false, active: false }] };
-    if (type === "profile") return { people: [{ name: "", role: "", bio: "", image: "" }] };
-    if (type === "image") return { url: "", caption: "" };
-    return {};
-  }
-
   async function addBlock(type: string) {
-    setIsAddMenuOpen(false); // Close menu
+    setIsAddMenuOpen(false);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
+
+    // デフォルトコンテンツ定義
+    let content = {};
+    if (type === "greeting") content = { text: "", author: "", role: "", image: "" };
+    if (type === "program") content = { items: [{ type: "song", title: "", composer: "", description: "" }] };
+    if (type === "profile") content = { people: [{ name: "", role: "", bio: "", image: "" }] };
+    if (type === "gallery") content = { title: "Gallery", images: [], caption: "" };
+    if (type === "free") content = { title: "", text: "" };
 
     const { error } = await supabase.from("blocks").insert({
       event_id: id,
       owner_id: u.user.id,
       type,
       sort_order: nextSortOrder(),
-      content: defaultContent(type),
+      content,
     });
 
-    if (error) {
-      showMsg(error.message, true);
-    } else {
-      await load();
-      // Scroll to bottom logic could be added here
-    }
+    if (error) showMsg("追加失敗", true);
+    else await load();
   }
 
   async function saveBlockContent(blockId: string, content: any) {
@@ -231,246 +196,167 @@ export default function EventEdit({ params }: Props) {
   async function deleteBlock(blockId: string) {
     if (!confirm("本当に削除しますか？")) return;
     const { error } = await supabase.from("blocks").delete().eq("id", blockId);
-    if (error) showMsg(error.message, true);
-    else setBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    if (!error) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
   async function moveBlock(blockId: string, dir: "up" | "down") {
     const idx = blocks.findIndex((b) => b.id === blockId);
     const to = dir === "up" ? idx - 1 : idx + 1;
     if (idx < 0 || to < 0 || to >= blocks.length) return;
-
     const newBlocks = [...blocks];
     [newBlocks[idx], newBlocks[to]] = [newBlocks[to], newBlocks[idx]];
     setBlocks(newBlocks);
-
-    const u1 = { id: newBlocks[idx].id, sort_order: (idx + 1) * 10 };
-    const u2 = { id: newBlocks[to].id, sort_order: (to + 1) * 10 };
-
     await Promise.all([
-      supabase.from("blocks").update({ sort_order: u1.sort_order }).eq("id", u1.id),
-      supabase.from("blocks").update({ sort_order: u2.sort_order }).eq("id", u2.id),
+      supabase.from("blocks").update({ sort_order: (idx + 1) * 10 }).eq("id", newBlocks[idx].id),
+      supabase.from("blocks").update({ sort_order: (to + 1) * 10 }).eq("id", newBlocks[to].id),
     ]);
   }
 
-  // --- Render ---
-
-  if (!event) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
-        <Loader2 className="animate-spin text-zinc-400" />
-      </div>
-    );
-  }
+  if (!event) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   const displayCover = coverImageDraft ?? event.cover_image;
+  const viewerUrl = typeof window !== 'undefined' ? `${window.location.origin}/e/${event.slug}` : '';
 
   return (
-    <div className="min-h-screen bg-zinc-100 font-sans text-zinc-900 pb-32 md:pb-24">
-      {/* HEADER (Floating) */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-zinc-200 px-4 py-3 flex justify-between items-center shadow-sm">
-        <h1 className="text-sm font-bold truncate max-w-[200px]">{event.title}</h1>
+    <div className="min-h-screen bg-zinc-100 font-sans text-zinc-900 pb-32">
+      {/* HEADER */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b px-4 py-3 flex justify-between items-center shadow-sm">
+        <h1 className="text-sm font-bold truncate max-w-[150px]">{event.title}</h1>
         <div className="flex gap-2 items-center">
-           {msg && (
-              <span className={`text-[10px] font-bold px-2 py-1 rounded-full animate-pulse ${isError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                {msg}
-              </span>
-           )}
-           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-black text-white rounded-full shadow-lg active:scale-95 transition-transform">
-             <Eye size={18} />
-           </Link>
+           {msg && <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isError ? 'bg-red-100 text-red' : 'bg-green-100 text-green-600'}`}>{msg}</span>}
+           <button onClick={() => setShowShareModal(true)} className="p-2 text-zinc-600 hover:bg-zinc-100 rounded-full"><Share2 size={18}/></button>
+           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-black text-white rounded-full shadow-md"><Eye size={18} /></Link>
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
+      {/* SHARE MODAL */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowShareModal(false)}>
+           <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center space-y-4" onClick={e => e.stopPropagation()}>
+              <h3 className="font-bold text-lg">プログラムを配布</h3>
+              
+              {/* QR Code (using API for simplicity) */}
+              <div className="bg-white p-2 border rounded-xl inline-block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(viewerUrl)}`} alt="QR" className="w-32 h-32" />
+              </div>
+              
+              <div className="bg-zinc-50 p-3 rounded-lg text-xs break-all border select-all">
+                {viewerUrl}
+              </div>
+              <button className="w-full py-3 bg-black text-white font-bold rounded-xl" onClick={() => setShowShareModal(false)}>閉じる</button>
+           </div>
+        </div>
+      )}
+
+      {/* MAIN */}
       <main className="max-w-2xl mx-auto p-4 space-y-6">
         
-        {/* --- TAB: EDIT --- */}
+        {/* EDIT TAB */}
         {activeTab === "edit" && (
-          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
-            
-            {/* 1. Cover Image Editor (Moved here!) */}
-            <section className="bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm">
-              <div className="relative aspect-[3/2] w-full bg-zinc-100 group">
-                {displayCover ? (
-                   // eslint-disable-next-line @next/next/no-img-element
-                   <img src={displayCover} className="w-full h-full object-cover" alt="Cover" />
-                ) : (
-                   <div className="flex flex-col items-center justify-center h-full text-zinc-300">
-                     <ImageIcon size={48} />
-                     <span className="text-xs font-bold mt-2">カバー画像なし</span>
-                   </div>
-                )}
-                
-                {/* Upload Overlay */}
-                <label className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center cursor-pointer transition-all">
-                   <div className="bg-white/90 backdrop-blur text-black px-4 py-2 rounded-full text-xs font-bold shadow-lg flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                     {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>}
-                     <span>変更する</span>
-                   </div>
-                   <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                </label>
-              </div>
-
-              {/* Save Button for Cover */}
-              {isCoverDirty && (
-                <div className="p-3 bg-zinc-50 border-t flex justify-between items-center animate-in slide-in-from-top-2">
-                  <span className="text-xs font-bold text-zinc-500">変更されています</span>
-                  <button 
-                    onClick={saveCoverImage} 
-                    disabled={loading}
-                    className="bg-black text-white px-4 py-2 rounded-full text-xs font-bold shadow-md"
-                  >
-                    {loading ? "保存中..." : "画像を保存"}
-                  </button>
-                </div>
-              )}
+          <div className="space-y-6 animate-in fade-in">
+            {/* Cover Image */}
+            <section className="bg-white rounded-2xl border overflow-hidden shadow-sm">
+               <div className="bg-zinc-50 px-4 py-2 border-b text-xs font-bold text-zinc-500 flex justify-between items-center">
+                 <span>表紙画像</span>
+                 {isCoverDirty && <span className="text-orange-500">保存されていません</span>}
+               </div>
+               <div className="relative aspect-[3/2] bg-zinc-100 group">
+                 {displayCover ? <img src={displayCover} className="w-full h-full object-cover" alt="" /> : <div className="flex flex-col items-center justify-center h-full text-zinc-300"><ImageIcon size={32}/><span className="text-xs mt-1">未設定</span></div>}
+                 <label className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center cursor-pointer transition-all">
+                    <div className="bg-white/90 px-4 py-2 rounded-full text-xs font-bold shadow flex gap-2"><Camera size={14}/>変更する</div>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+                 </label>
+               </div>
+               {isCoverDirty && <div className="p-3 bg-orange-50 flex justify-end"><button onClick={saveCoverImage} disabled={loading} className="bg-black text-white px-4 py-2 rounded-full text-xs font-bold">{loading?"保存中":"画像を保存"}</button></div>}
             </section>
 
-            {/* 2. Block List */}
+            {/* Blocks */}
             <div className="space-y-4">
-              {blocks.length === 0 && (
-                <div className="text-center py-10 border-2 border-dashed border-zinc-300 rounded-2xl text-zinc-400">
-                  <p className="text-sm font-bold mb-1">コンテンツがありません</p>
-                  <p className="text-xs">右下のボタンから追加してください</p>
-                </div>
-              )}
-
-              {blocks.map((b, i) => (
-                 <BlockEditor 
-                    key={b.id} 
-                    block={b} 
-                    index={i} 
-                    total={blocks.length} 
-                    onSave={saveBlockContent}
-                    onMove={moveBlock}
-                    onDelete={deleteBlock}
-                    supabaseClient={supabase}
-                 />
-              ))}
+               {blocks.map((b, i) => (
+                  <BlockEditor key={b.id} block={b} index={i} total={blocks.length} onSave={saveBlockContent} onMove={moveBlock} onDelete={deleteBlock} supabaseClient={supabase} />
+               ))}
             </div>
-            
-            {/* Spacer for FAB */}
             <div className="h-20" />
           </div>
         )}
 
-        {/* --- TAB: LIVE --- */}
+        {/* LIVE TAB */}
         {activeTab === "live" && (
-          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
-            
-            {/* Encore Control */}
-            <section className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-sm text-center">
-              <div className="inline-block p-3 bg-yellow-100 text-yellow-700 rounded-full mb-4">
-                <Zap size={24} fill="currentColor" />
-              </div>
-              <h2 className="text-xl font-bold mb-1">アンコール管理</h2>
-              <p className="text-xs text-zinc-500 mb-6">本番のアンコール時に公開してください</p>
-              
-              <button
-                onClick={toggleEncore}
-                className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
-                  encoreRevealed ? "bg-green-500 text-white" : "bg-zinc-100 text-zinc-400"
-                }`}
-              >
-                {encoreRevealed ? <Unlock /> : <Lock />}
-                {encoreRevealed ? "公開中" : "非公開"}
+          <div className="space-y-6 animate-in fade-in">
+            <section className="bg-white rounded-3xl p-6 border shadow-sm text-center">
+              <h2 className="text-lg font-bold mb-4">アンコール管理</h2>
+              <button onClick={toggleEncore} className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 shadow-lg active:scale-95 ${encoreRevealed ? "bg-green-500 text-white" : "bg-zinc-100 text-zinc-500"}`}>
+                {encoreRevealed ? <Unlock /> : <Lock />} {encoreRevealed ? "公開中" : "非公開"}
               </button>
             </section>
 
-            {/* Program Control */}
             <div className="space-y-4">
-               <div className="flex items-center gap-2 px-2">
-                 <Music className="text-blue-500" size={18}/>
-                 <h2 className="font-bold text-zinc-700">演奏コントロール</h2>
-               </div>
-
-               {blocks.filter(b => b.type === "program").map(block => (
-                 <div key={block.id} className="bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm">
-                   <div className="bg-zinc-50 border-b px-4 py-2 text-xs font-bold text-zinc-400">PROGRAM LIST</div>
-                   {block.content.items?.map((item: any, i: number) => {
-                      const isActive = item.active === true;
-                      const isBreak = item.type === "break";
-                      return (
-                        <div key={i} className={`flex items-center gap-4 p-4 border-b last:border-0 ${isActive ? 'bg-blue-50' : ''}`}>
-                          {!isBreak ? (
-                            <button 
-                              onClick={() => toggleActiveItem(block.id, i)}
-                              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-zinc-100 text-zinc-400'}`}
-                            >
-                              {isActive ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1"/>}
-                            </button>
-                          ) : (
-                            <div className="w-12 h-12 flex items-center justify-center text-zinc-300"><Coffee /></div>
-                          )}
-                          
-                          <div className="flex-1 min-w-0">
-                             <div className={`font-bold truncate ${isActive ? 'text-blue-700' : 'text-zinc-700'} ${isBreak ? 'opacity-50' : ''}`}>
-                               {item.title}
-                             </div>
-                             {!isBreak && <div className="text-xs text-zinc-400 truncate">{item.composer}</div>}
-                          </div>
-                          
-                          {isActive && (
-                            <div className="px-2 py-1 bg-blue-500 text-white text-[10px] font-bold rounded animate-pulse">
-                              NOW
-                            </div>
-                          )}
-                        </div>
-                      )
-                   })}
-                 </div>
-               ))}
+              <div className="flex items-center gap-2 px-2"><Music className="text-blue-500" size={18}/><h2 className="font-bold">演奏コントロール</h2></div>
+              {blocks.filter(b => b.type === "program").map(block => (
+                <div key={block.id} className="bg-white rounded-2xl border overflow-hidden">
+                  <div className="bg-zinc-50 border-b px-4 py-2 text-xs font-bold text-zinc-400">PROGRAM</div>
+                  {block.content.items?.map((item: any, i: number) => {
+                     const isBreak = item.type === "break";
+                     const isActive = item.active === true;
+                     return (
+                       <div key={i} className={`p-4 border-b last:border-0 ${isActive ? 'bg-blue-50' : ''}`}>
+                         <div className="flex items-center gap-4">
+                           {!isBreak ? (
+                             <button onClick={() => toggleActiveItem(block.id, i)} className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-zinc-100 text-zinc-400'}`}>
+                               {isActive ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1"/>}
+                             </button>
+                           ) : <div className="w-12 h-12 flex items-center justify-center text-zinc-300"><Coffee /></div>}
+                           
+                           <div className="flex-1">
+                             <div className={`font-bold ${isActive ? 'text-blue-700' : 'text-zinc-700'}`}>{item.title}</div>
+                             {isActive && <span className="text-[10px] text-blue-500 font-bold animate-pulse">NOW PLAYING</span>}
+                             
+                             {/* 休憩タイマー操作 */}
+                             {isBreak && (
+                               <div className="mt-2 flex gap-2">
+                                 <button onClick={() => startBreakTimer(block.id, i, 15)} className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 text-xs font-bold rounded-lg flex items-center gap-1"><Clock size={12}/> 15分開始</button>
+                                 <button onClick={() => startBreakTimer(block.id, i, 20)} className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 text-xs font-bold rounded-lg flex items-center gap-1"><Clock size={12}/> 20分開始</button>
+                               </div>
+                             )}
+                           </div>
+                         </div>
+                       </div>
+                     )
+                  })}
+                </div>
+              ))}
             </div>
-            
-            {/* Spacer */}
             <div className="h-20" />
           </div>
         )}
-
       </main>
 
-      {/* --- FLOATING ACTION BUTTON (Only in Edit) --- */}
+      {/* FAB & MENU */}
       {activeTab === "edit" && (
         <>
-          {/* Menu Overlay */}
           {isAddMenuOpen && (
             <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end justify-end p-6" onClick={() => setIsAddMenuOpen(false)}>
-              <div className="flex flex-col gap-3 mb-20 animate-in slide-in-from-bottom-5 duration-200">
-                <AddMenuBtn label="挨拶を追加" icon={MessageSquare} color="bg-orange-500" onClick={() => addBlock("greeting")} />
-                <AddMenuBtn label="画像を追加" icon={ImageIcon} color="bg-pink-500" onClick={() => addBlock("image")} />
-                <AddMenuBtn label="プロフィールを追加" icon={User} color="bg-green-500" onClick={() => addBlock("profile")} />
-                <AddMenuBtn label="プログラムを追加" icon={Music} color="bg-blue-500" onClick={() => addBlock("program")} />
+              <div className="flex flex-col gap-3 mb-20 animate-in slide-in-from-bottom-5">
+                <AddMenuBtn label="ご挨拶" icon={MessageSquare} color="bg-orange-500" onClick={() => addBlock("greeting")} />
+                <AddMenuBtn label="フリートピック" icon={Info} color="bg-indigo-500" onClick={() => addBlock("free")} />
+                <AddMenuBtn label="ギャラリー" icon={Grid} color="bg-pink-500" onClick={() => addBlock("gallery")} />
+                <AddMenuBtn label="出演者" icon={User} color="bg-green-500" onClick={() => addBlock("profile")} />
+                <AddMenuBtn label="プログラム" icon={Music} color="bg-blue-500" onClick={() => addBlock("program")} />
               </div>
             </div>
           )}
-          
-          {/* Main FAB */}
-          <button 
-            onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-            className={`fixed bottom-24 right-6 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all active:scale-90 ${isAddMenuOpen ? 'bg-zinc-800 rotate-45' : 'bg-black hover:bg-zinc-800'}`}
-          >
+          <button onClick={() => setIsAddMenuOpen(!isAddMenuOpen)} className={`fixed bottom-24 right-6 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white transition-all active:scale-90 ${isAddMenuOpen ? 'bg-zinc-800 rotate-45' : 'bg-black'}`}>
             <Plus size={28} />
           </button>
         </>
       )}
 
-      {/* --- BOTTOM NAVIGATION --- */}
-      <nav className="fixed bottom-0 inset-x-0 z-50 bg-white border-t border-zinc-200 px-6 py-2 flex justify-around pb-safe">
-        <NavBtn 
-          active={activeTab === "edit"} 
-          onClick={() => setActiveTab("edit")} 
-          icon={Edit3} 
-          label="編集" 
-        />
-        <NavBtn 
-          active={activeTab === "live"} 
-          onClick={() => setActiveTab("live")} 
-          icon={MonitorPlay} 
-          label="本番" 
-        />
+      {/* BOTTOM NAV */}
+      <nav className="fixed bottom-0 inset-x-0 z-50 bg-white border-t px-6 py-2 flex justify-around pb-safe">
+        <NavBtn active={activeTab === "edit"} onClick={() => setActiveTab("edit")} icon={Edit3} label="編集" />
+        <NavBtn active={activeTab === "live"} onClick={() => setActiveTab("live")} icon={MonitorPlay} label="本番" />
       </nav>
-
     </div>
   );
 }
@@ -479,8 +365,8 @@ export default function EventEdit({ params }: Props) {
 
 function NavBtn({ active, onClick, icon: Icon, label }: any) {
   return (
-    <button onClick={onClick} className={`flex flex-col items-center gap-1 p-2 w-20 rounded-xl transition-colors ${active ? 'text-black' : 'text-zinc-300 hover:text-zinc-500'}`}>
-      <Icon size={24} strokeWidth={active ? 2.5 : 2} />
+    <button onClick={onClick} className={`flex flex-col items-center gap-1 p-2 w-20 rounded-xl transition-colors ${active ? 'text-black' : 'text-zinc-300'}`}>
+      <Icon size={24} strokeWidth={active?2.5:2} />
       <span className="text-[10px] font-bold">{label}</span>
     </button>
   );
@@ -488,16 +374,13 @@ function NavBtn({ active, onClick, icon: Icon, label }: any) {
 
 function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
   return (
-    <button onClick={(e) => { e.stopPropagation(); onClick(); }} className="flex items-center gap-3 bg-white p-3 pr-6 rounded-full shadow-lg active:scale-95 transition-transform">
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${color}`}>
-        <Icon size={16} />
-      </div>
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }} className="flex items-center gap-3 bg-white p-3 pr-6 rounded-full shadow-lg active:scale-95">
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${color}`}><Icon size={16} /></div>
       <span className="text-sm font-bold text-zinc-700">{label}</span>
     </button>
   );
 }
 
-// ブロック編集コンポーネント
 function BlockEditor({ block, index, total, onSave, onMove, onDelete, supabaseClient }: any) {
   const [content, setContent] = useState(block.content ?? {});
   const [isDirty, setIsDirty] = useState(false);
@@ -509,12 +392,10 @@ function BlockEditor({ block, index, total, onSave, onMove, onDelete, supabaseCl
 
   const handleSave = async () => {
     setSaving(true);
-    try { await onSave(block.id, content); setIsDirty(false); } 
-    catch { alert("エラー"); } 
-    finally { setSaving(false); }
+    try { await onSave(block.id, content); setIsDirty(false); } catch { alert("Error"); } finally { setSaving(false); }
   };
 
-  const handleImageUpload = async (e: any, keyOrIndex: any, isProfile = false) => {
+  const handleUpload = async (e: any, target: 'single' | 'gallery' | 'profile', index?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
@@ -525,170 +406,142 @@ function BlockEditor({ block, index, total, onSave, onMove, onDelete, supabaseCl
       if (error) throw error;
       const { data } = supabaseClient.storage.from("pamp-images").getPublicUrl(path);
 
-      if (isProfile) {
-        const np = [...content.people];
-        np[keyOrIndex].image = data.publicUrl;
-        handleChange({ ...content, people: np });
-      } else {
-        handleChange({ ...content, url: data.publicUrl });
+      if (target === 'single') handleChange({ ...content, image: data.publicUrl }); // Greeting image
+      if (target === 'profile' && typeof index === 'number') {
+        const np = [...content.people]; np[index].image = data.publicUrl; handleChange({ ...content, people: np });
       }
-    } catch { alert("Upload failed"); } 
-    finally { setUploading(false); }
+      if (target === 'gallery') {
+         // 配列に追加（旧仕様のurlがある場合はそれも維持）
+         const current = content.images ?? (content.url ? [content.url] : []);
+         handleChange({ ...content, images: [...current, data.publicUrl] });
+      }
+    } catch { alert("Upload Failed"); } finally { setUploading(false); }
   };
 
-  const typeLabel: Record<string, string> = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", image: "画像" };
-  
-  // ★ここを修正しました
-  const iconMap: Record<string, any> = { greeting: MessageSquare, program: Music, profile: User, image: ImageIcon };
+  const iconMap: any = { greeting: MessageSquare, program: Music, profile: User, gallery: Grid, free: Info };
   const TypeIcon = iconMap[block.type] || Edit3;
+  const labels: any = { greeting: "ご挨拶", program: "プログラム", profile: "出演者", gallery: "ギャラリー", free: "フリートピック" };
 
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm transition-all ${isDirty ? 'ring-2 ring-black border-transparent' : 'border-zinc-200'}`}>
-      
-      {/* Block Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100">
-        <div className="flex items-center gap-2 text-zinc-500">
-          <TypeIcon size={16} />
-          <span className="text-xs font-bold">{typeLabel[block.type]}</span>
-        </div>
+    <div className={`bg-white rounded-2xl border shadow-sm transition-all ${isDirty ? 'ring-2 ring-black' : 'border-zinc-200'}`}>
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-zinc-50 rounded-t-2xl">
+        <div className="flex items-center gap-2 text-zinc-500 font-bold text-xs"><TypeIcon size={14} />{labels[block.type]}</div>
         <div className="flex items-center">
-          <button onClick={() => onMove(block.id, "up")} disabled={index === 0} className="p-2 text-zinc-300 hover:text-black disabled:opacity-20"><ArrowUp size={16}/></button>
-          <button onClick={() => onMove(block.id, "down")} disabled={index === total - 1} className="p-2 text-zinc-300 hover:text-black disabled:opacity-20"><ArrowDown size={16}/></button>
-          <div className="w-px h-3 bg-zinc-200 mx-1"/>
-          <button onClick={() => onDelete(block.id)} className="p-2 text-zinc-300 hover:text-red-500"><Trash2 size={16}/></button>
+           <button onClick={() => onMove(block.id, "up")} disabled={index===0} className="p-2 text-zinc-300 hover:text-black"><ArrowUp size={16}/></button>
+           <button onClick={() => onMove(block.id, "down")} disabled={index===total-1} className="p-2 text-zinc-300 hover:text-black"><ArrowDown size={16}/></button>
+           <div className="w-px h-3 bg-zinc-200 mx-1"/>
+           <button onClick={() => onDelete(block.id)} className="p-2 text-zinc-300 hover:text-red-500"><Trash2 size={16}/></button>
         </div>
       </div>
 
-      {/* Block Body */}
       <div className="p-4 space-y-4">
-        
+        {/* --- Greeting --- */}
         {block.type === "greeting" && (
-          <textarea
-            className="w-full min-h-[120px] p-3 rounded-xl bg-zinc-50 border-0 text-sm focus:ring-2 focus:ring-black outline-none resize-none"
-            placeholder="ここに挨拶文を入力してください..."
-            value={content.text || ""}
-            onChange={(e) => handleChange({ ...content, text: e.target.value })}
-          />
+          <>
+            <div className="flex gap-4">
+              <div className="relative w-20 h-24 bg-zinc-100 border rounded overflow-hidden shrink-0 group">
+                {content.image ? <img src={content.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-8 text-zinc-300"/>}
+                <label className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center cursor-pointer"><Upload className="text-white opacity-0 group-hover:opacity-100" size={16}/><input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} /></label>
+              </div>
+              <div className="flex-1 space-y-2">
+                <input className="w-full text-base bg-zinc-50 p-2 rounded border-0" placeholder="名前 (例: 山田 太郎)" value={content.author||""} onChange={e => handleChange({...content, author: e.target.value})} />
+                <input className="w-full text-base bg-zinc-50 p-2 rounded border-0" placeholder="肩書き (例: 主催)" value={content.role||""} onChange={e => handleChange({...content, role: e.target.value})} />
+              </div>
+            </div>
+            <textarea className="w-full min-h-[120px] text-base bg-zinc-50 p-3 rounded resize-none" placeholder="挨拶文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} />
+          </>
         )}
 
-        {block.type === "image" && (
-          <div className="space-y-3">
-             <div className="relative w-full aspect-video bg-zinc-100 rounded-xl overflow-hidden group">
-               {content.url ? (
-                 // eslint-disable-next-line @next/next/no-img-element
-                 <img src={content.url} className="w-full h-full object-cover" alt="" />
-               ) : (
-                 <div className="flex items-center justify-center h-full text-zinc-300"><ImageIcon /></div>
-               )}
-               <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-all cursor-pointer">
-                  {uploading ? <Loader2 className="animate-spin text-white"/> : <Upload className="text-white opacity-0 group-hover:opacity-100"/>}
-                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, null)} />
-               </label>
+        {/* --- Free Topic --- */}
+        {block.type === "free" && (
+           <>
+             <input className="w-full text-base font-bold bg-zinc-50 p-2 rounded" placeholder="タイトル (例: お知らせ)" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} />
+             <textarea className="w-full min-h-[100px] text-base bg-zinc-50 p-3 rounded resize-none" placeholder="本文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} />
+           </>
+        )}
+
+        {/* --- Gallery --- */}
+        {block.type === "gallery" && (
+           <>
+             <input className="w-full text-base font-bold bg-zinc-50 p-2 rounded" placeholder="タイトル (例: リハーサル風景)" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} />
+             <div className="grid grid-cols-3 gap-2">
+                {(content.images || (content.url ? [content.url] : [])).map((url:string, i:number) => (
+                   <div key={i} className="relative aspect-square bg-zinc-100 rounded overflow-hidden group">
+                     <img src={url} className="w-full h-full object-cover" alt="" />
+                     <button onClick={() => {
+                        const ni = (content.images || [content.url]).filter((_:any, idx:number) => idx !== i);
+                        handleChange({...content, images: ni});
+                     }} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X size={12}/></button>
+                   </div>
+                ))}
+                <label className="aspect-square bg-zinc-50 border-2 border-dashed rounded flex flex-col items-center justify-center text-zinc-400 cursor-pointer hover:bg-zinc-100">
+                   {uploading ? <Loader2 className="animate-spin"/> : <Plus />}
+                   <span className="text-[10px] mt-1">追加</span>
+                   <input type="file" className="hidden" accept="image/*" onChange={e => handleUpload(e, 'gallery')} />
+                </label>
              </div>
-             <input 
-                className="w-full bg-zinc-50 p-2 rounded-lg text-xs outline-none" 
-                placeholder="キャプション (任意)"
-                value={content.caption || ""} 
-                onChange={(e) => handleChange({ ...content, caption: e.target.value })}
-             />
-          </div>
+             <input className="w-full text-base bg-zinc-50 p-2 rounded" placeholder="キャプション (任意)" value={content.caption||""} onChange={e => handleChange({...content, caption: e.target.value})} />
+           </>
         )}
 
+        {/* --- Profile --- */}
         {block.type === "profile" && (
           <div className="space-y-4">
             {(content.people || []).map((p: any, i: number) => (
-              <div key={i} className="flex gap-3 items-start">
-                <div className="relative w-16 h-16 bg-zinc-100 rounded-full overflow-hidden shrink-0 group">
-                  {p.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.image} className="w-full h-full object-cover" alt=""/>
-                  ) : <User className="m-auto mt-4 text-zinc-300"/>}
-                  <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 cursor-pointer">
-                    <Upload size={14} className="text-white opacity-0 group-hover:opacity-100" />
-                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, i, true)} />
-                  </label>
+              <div key={i} className="flex gap-3 items-start border p-2 rounded-lg relative">
+                <div className="relative w-16 h-16 bg-zinc-100 rounded overflow-hidden shrink-0 group">
+                  {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-4 text-zinc-300"/>}
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/30 cursor-pointer"><Upload className="text-white opacity-0 group-hover:opacity-100" size={14}/><input type="file" className="hidden" onChange={e => handleUpload(e, 'profile', i)} /></label>
                 </div>
                 <div className="flex-1 space-y-2">
-                  <input className="w-full bg-zinc-50 rounded-lg px-3 py-2 text-sm font-bold outline-none" placeholder="名前" value={p.name} onChange={(e) => {
-                    const np = [...content.people]; np[i].name = e.target.value; handleChange({ ...content, people: np });
-                  }} />
-                  <input className="w-full bg-zinc-50 rounded-lg px-3 py-2 text-xs outline-none" placeholder="役割 (Pf, Vnなど)" value={p.role} onChange={(e) => {
-                    const np = [...content.people]; np[i].role = e.target.value; handleChange({ ...content, people: np });
-                  }} />
-                  <textarea className="w-full bg-zinc-50 rounded-lg px-3 py-2 text-xs h-20 outline-none resize-none" placeholder="プロフィール文" value={p.bio} onChange={(e) => {
-                    const np = [...content.people]; np[i].bio = e.target.value; handleChange({ ...content, people: np });
-                  }} />
-                  <button onClick={() => {
-                     const np = content.people.filter((_: any, idx: number) => idx !== i);
-                     handleChange({ ...content, people: np });
-                  }} className="text-xs text-red-400 font-bold hover:text-red-600">削除</button>
+                  <input className="w-full bg-zinc-50 rounded px-2 py-1 text-base font-bold" placeholder="名前" value={p.name} onChange={e => { const np=[...content.people]; np[i].name=e.target.value; handleChange({...content, people:np}); }} />
+                  <input className="w-full bg-zinc-50 rounded px-2 py-1 text-base" placeholder="役割" value={p.role} onChange={e => { const np=[...content.people]; np[i].role=e.target.value; handleChange({...content, people:np}); }} />
+                  <textarea className="w-full bg-zinc-50 rounded px-2 py-1 text-base h-20 resize-none" placeholder="プロフィール" value={p.bio} onChange={e => { const np=[...content.people]; np[i].bio=e.target.value; handleChange({...content, people:np}); }} />
                 </div>
+                <button onClick={() => { const np=content.people.filter((_:any,idx:number)=>idx!==i); handleChange({...content, people:np}); }} className="absolute top-2 right-2 text-zinc-300 hover:text-red-500"><Trash2 size={14}/></button>
               </div>
             ))}
-            <button onClick={() => handleChange({ ...content, people: [...(content.people || []), { name: "", role: "", bio: "", image: "" }] })} className="w-full py-2 bg-zinc-50 text-zinc-400 text-xs font-bold rounded-lg hover:bg-zinc-100">
-              + 人物を追加
-            </button>
+            <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:""}]})} className="w-full py-2 bg-zinc-50 text-zinc-500 rounded font-bold">+ 出演者を追加</button>
           </div>
         )}
 
+        {/* --- Program --- */}
         {block.type === "program" && (
            <div className="space-y-3">
              {(content.items || []).map((item: any, i: number) => {
                const isBreak = item.type === "break";
                return (
-                 <div key={i} className="flex gap-2 items-start border p-2 rounded-xl bg-zinc-50/50">
-                   <div className="pt-2 text-zinc-300 cursor-grab active:cursor-grabbing"><GripVertical size={14}/></div>
+                 <div key={i} className="flex gap-2 items-start border p-2 rounded-lg bg-zinc-50">
+                   <div className="pt-2 text-zinc-300 cursor-grab"><GripVertical size={14}/></div>
                    <div className="flex-1 space-y-2">
                      <div className="flex gap-2">
-                        <input className="flex-1 bg-transparent font-bold text-sm outline-none" placeholder={isBreak ? "休憩名" : "曲名"} value={item.title} onChange={(e) => {
-                          const ni = [...content.items]; ni[i].title = e.target.value; handleChange({...content, items: ni});
-                        }} />
-                        {!isBreak && (
-                          <button onClick={() => {
-                             const ni = [...content.items]; ni[i].isEncore = !ni[i].isEncore; handleChange({...content, items: ni});
-                          }} className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.isEncore ? 'bg-black text-white' : 'bg-zinc-200 text-zinc-400'}`}>Encore</button>
-                        )}
+                        <input className="flex-1 bg-transparent font-bold text-base" placeholder={isBreak?"休憩名":"曲名"} value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
+                        {!isBreak && <button onClick={() => { const ni=[...content.items]; ni[i].isEncore=!ni[i].isEncore; handleChange({...content, items:ni}); }} className={`px-2 rounded text-xs font-bold ${item.isEncore?'bg-black text-white':'bg-zinc-200 text-zinc-400'}`}>Encore</button>}
                      </div>
                      {isBreak ? (
-                        <input className="w-full bg-transparent text-xs outline-none text-zinc-500" placeholder="15分" value={item.duration} onChange={(e) => {
-                          const ni = [...content.items]; ni[i].duration = e.target.value; handleChange({...content, items: ni});
-                        }} />
+                        <input className="w-full bg-transparent text-base text-zinc-500" placeholder="15分" value={item.duration} onChange={e => { const ni=[...content.items]; ni[i].duration=e.target.value; handleChange({...content, items:ni}); }} />
                      ) : (
                        <>
-                         <input className="w-full bg-transparent text-xs outline-none text-zinc-500" placeholder="作曲者" value={item.composer} onChange={(e) => {
-                            const ni = [...content.items]; ni[i].composer = e.target.value; handleChange({...content, items: ni});
-                          }} />
-                         <textarea className="w-full bg-white border border-zinc-100 rounded p-2 text-xs h-16 resize-none outline-none" placeholder="曲解説" value={item.description} onChange={(e) => {
-                            const ni = [...content.items]; ni[i].description = e.target.value; handleChange({...content, items: ni});
-                          }} />
+                         <input className="w-full bg-transparent text-base text-zinc-500" placeholder="作曲者" value={item.composer} onChange={e => { const ni=[...content.items]; ni[i].composer=e.target.value; handleChange({...content, items:ni}); }} />
+                         <textarea className="w-full bg-white border border-zinc-100 rounded p-2 text-base h-20 resize-none" placeholder="解説" value={item.description} onChange={e => { const ni=[...content.items]; ni[i].description=e.target.value; handleChange({...content, items:ni}); }} />
                        </>
                      )}
-                     <div className="text-right">
-                        <button onClick={() => {
-                          const ni = content.items.filter((_: any, idx: number) => idx !== i);
-                          handleChange({...content, items: ni});
-                        }} className="text-[10px] text-red-400 font-bold">削除</button>
-                     </div>
+                     <div className="text-right"><button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="text-xs text-red-400 font-bold">削除</button></div>
                    </div>
                  </div>
                )
              })}
              <div className="flex gap-2">
-               <button onClick={() => handleChange({ ...content, items: [...(content.items||[]), {type:"song", title:"", composer:"", description:"", isEncore:false}]})} className="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-lg">+ 曲</button>
-               <button onClick={() => handleChange({ ...content, items: [...(content.items||[]), {type:"break", title:"休憩", duration:"15分"}]})} className="flex-1 py-2 bg-zinc-100 text-zinc-500 text-xs font-bold rounded-lg">+ 休憩</button>
+               <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"song",title:"",composer:"",description:"",isEncore:false}]})} className="flex-1 py-2 bg-blue-50 text-blue-600 font-bold rounded">+ 曲</button>
+               <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"break",title:"休憩",duration:"15分"}]})} className="flex-1 py-2 bg-zinc-100 text-zinc-500 font-bold rounded">+ 休憩</button>
              </div>
            </div>
         )}
-
       </div>
-      
-      {/* Save Button (Sticky) */}
+
       {isDirty && (
-        <div className="p-3 bg-zinc-50 rounded-b-2xl border-t border-zinc-100 flex justify-end">
-           <button onClick={handleSave} disabled={saving} className="bg-black text-white px-5 py-2 rounded-full text-sm font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-transform">
-             {saving ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}
-             保存する
-           </button>
+        <div className="p-3 border-t bg-zinc-50 rounded-b-2xl flex justify-end">
+           <button onClick={handleSave} disabled={saving} className="bg-black text-white px-5 py-2 rounded-full font-bold shadow-lg active:scale-95">{saving ? <Loader2 className="animate-spin"/> : "保存"}</button>
         </div>
       )}
     </div>
