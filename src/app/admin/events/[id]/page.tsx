@@ -20,15 +20,13 @@ import {
   Coffee,
   Play,
   Pause,
-  Lock,
-  Unlock,
   Edit3,
   MonitorPlay,
   Share2,
   Grid,
   X,
   ChevronDown,
-  LayoutTemplate,
+  ChevronUp,
   Type,
   List,
   Star,
@@ -43,7 +41,8 @@ import {
   Globe,
   Heart,
   MessageCircle,
-  Settings2
+  Settings,
+  Link as LinkIcon
 } from "lucide-react";
 
 import {
@@ -79,6 +78,14 @@ function InputField({ label, children }: { label: string; children: React.ReactN
       {children}
     </div>
   );
+}
+
+// iPhone Zoom Prevention Input Wrapper
+function NoZoomInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`w-full bg-slate-50 px-3 py-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-slate-300 ${props.className || ''}`} />;
+}
+function NoZoomTextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} className={`w-full bg-slate-50 p-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none placeholder:text-slate-300 leading-relaxed ${props.className || ''}`} />;
 }
 
 export default function EventEdit({ params }: Props) {
@@ -133,7 +140,6 @@ export default function EventEdit({ params }: Props) {
     setEvent(e);
     setCoverImageDraft(e.cover_image ?? null);
     
-    // Load footer links from theme (using theme as a JSON store for extras)
     const theme = typeof e.theme === 'string' ? JSON.parse(e.theme) : (e.theme || {});
     setFooterLinks(theme.footer_links || {});
 
@@ -184,8 +190,6 @@ export default function EventEdit({ params }: Props) {
   async function saveEventMeta() {
     if (!isEventDirty) return;
     setLoading(true);
-    
-    // Save Links to Theme
     const currentTheme = typeof event.theme === 'string' ? JSON.parse(event.theme) : (event.theme || {});
     const newTheme = { ...currentTheme, footer_links: footerLinks };
 
@@ -212,19 +216,20 @@ export default function EventEdit({ params }: Props) {
   async function toggleActiveItem(blockId: string, itemIndex: number) {
     if (!blocks || blocks.length === 0) return;
     const targetBlockIndex = blocks.findIndex((b) => b.id === blockId);
-    if (targetBlockIndex === -1) return;
     const targetBlock = blocks[targetBlockIndex];
-    if (!targetBlock?.content?.items || !targetBlock.content.items[itemIndex]) return;
+    if (!targetBlock?.content?.items) return;
 
     const items = [...targetBlock.content.items];
     const targetId = `${blockId}-${itemIndex}`;
     const isCurrentlyActive = playingItemId === targetId;
-    const nextState = !isCurrentlyActive;
-    setPlayingItemId(nextState ? targetId : null);
+    
+    // Toggle logic
+    setPlayingItemId(isCurrentlyActive ? null : targetId);
     items.forEach((it, idx) => {
-        if (idx === itemIndex) it.active = nextState;
+        if (idx === itemIndex) it.active = !isCurrentlyActive;
         else it.active = false; 
     });
+    
     const newBlocks = [...blocks];
     newBlocks[targetBlockIndex] = { ...targetBlock, content: { ...targetBlock.content, items } };
     setBlocks(newBlocks);
@@ -235,58 +240,72 @@ export default function EventEdit({ params }: Props) {
   async function startBreak(minutes: number) {
     let targetBlockId = null;
     let targetItemIndex = -1;
-    // Find break block
-    if (playingItemId) {
-       const active = getActiveItemInfo();
-       if (active?.item.type === "break") {
-          targetBlockId = active.block.id;
-          targetItemIndex = active.index;
-       }
+
+    // 現在アクティブな休憩があればそれを優先
+    const currentActive = getActiveItemInfo();
+    if (currentActive?.item.type === "break") {
+        targetBlockId = currentActive.block.id;
+        targetItemIndex = currentActive.index;
+    } else {
+        // なければリストから探す
+        for (const b of blocks) {
+            if (b.type === "program" && b.content?.items) {
+                const idx = b.content.items.findIndex((it:any) => it.type === "break");
+                if (idx !== -1) {
+                    targetBlockId = b.id;
+                    targetItemIndex = idx;
+                    break;
+                }
+            }
+        }
     }
-    if (!targetBlockId) {
-       for (const b of blocks) {
-          if (b.type === "program" && b.content?.items) {
-             const idx = b.content.items.findIndex((it:any) => it.type === "break");
-             if (idx !== -1) {
-                targetBlockId = b.id;
-                targetItemIndex = idx;
-                break;
-             }
-          }
-       }
-    }
-    if (!targetBlockId) return showMsg("プログラム内に「休憩」項目を追加してください", true);
+
+    if (!targetBlockId) return showMsg("リストに休憩項目がありません", true);
 
     const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
     const target = blocks[targetIndex];
     const end = new Date(Date.now() + minutes * 60000).toISOString();
     const newItems = [...target.content.items];
-    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
+    
+    // 他の項目を非アクティブに
+    newItems.forEach(it => it.active = false);
+    
+    newItems[targetItemIndex] = { 
+        ...newItems[targetItemIndex], 
+        timerEnd: end, 
+        duration: `${minutes}分`, 
+        active: true 
+    };
+    
     setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
+    
     const newBlocks = [...blocks];
     newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
     setBlocks(newBlocks);
+
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
     showMsg(`${minutes}分の休憩を開始しました⏳`);
   }
 
   async function stopBreak() {
-    if (!playingItemId) return;
     const active = getActiveItemInfo();
     if (!active || active.item.type !== "break") return;
+
     const targetIndex = blocks.findIndex(b => b.id === active.block.id);
     const target = blocks[targetIndex];
     const newItems = [...target.content.items];
     newItems[active.index] = { ...newItems[active.index], timerEnd: null, active: false };
+
     setPlayingItemId(null);
     const newBlocks = [...blocks];
     newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
     setBlocks(newBlocks);
+
     await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
     showMsg("休憩を終了しました");
   }
 
-  // --- Block Ops ---
+  // --- Add/Edit/Delete ---
   async function addBlock(type: string) {
     setIsAddMenuOpen(false);
     const { data: u } = await supabase.auth.getUser();
@@ -336,14 +355,12 @@ export default function EventEdit({ params }: Props) {
   };
   const handleShareLine = () => {
     if (typeof window !== 'undefined') {
-        const url = `${window.location.origin}/e/${event.slug}`;
-        window.open(`https://line.me/R/msg/text/?${encodeURIComponent(event.title + " " + url)}`, '_blank');
+        window.open(`https://line.me/R/msg/text/?${encodeURIComponent(event.title + " " + `${window.location.origin}/e/${event.slug}`)}`, '_blank');
     }
   };
   const handleShareMail = () => {
     if (typeof window !== 'undefined') {
-        const url = `${window.location.origin}/e/${event.slug}`;
-        window.open(`mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(url)}`);
+        window.open(`mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(`${window.location.origin}/e/${event.slug}`)}`);
     }
   };
 
@@ -389,18 +406,9 @@ export default function EventEdit({ params }: Props) {
                  <h3 className="font-bold text-lg text-slate-800 mb-6">プログラムを配布</h3>
                  {qrCodeData && <img src={qrCodeData} alt="QR" className="w-48 h-48 mb-6 mix-blend-multiply border rounded-xl" />}
                  <div className="grid grid-cols-3 gap-3 w-full">
-                    <button onClick={handleShareLine} className="flex flex-col items-center gap-2 p-3 bg-[#06C755]/10 rounded-2xl hover:bg-[#06C755]/20 active:scale-95 transition-all">
-                       <div className="w-10 h-10 bg-[#06C755] rounded-full flex items-center justify-center text-white"><ExternalLink size={20}/></div>
-                       <span className="text-[10px] font-bold text-slate-600">LINE</span>
-                    </button>
-                    <button onClick={handleCopyLink} className="flex flex-col items-center gap-2 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all">
-                       <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-600"><Copy size={20}/></div>
-                       <span className="text-[10px] font-bold text-slate-600">コピー</span>
-                    </button>
-                    <button onClick={handleShareMail} className="flex flex-col items-center gap-2 p-3 bg-blue-50 rounded-2xl hover:bg-blue-100 active:scale-95 transition-all">
-                       <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white"><Mail size={20}/></div>
-                       <span className="text-[10px] font-bold text-slate-600">メール</span>
-                    </button>
+                    <button onClick={handleShareLine} className="flex flex-col items-center gap-2 p-3 bg-[#06C755]/10 rounded-2xl hover:bg-[#06C755]/20 active:scale-95 transition-all"><div className="w-10 h-10 bg-[#06C755] rounded-full flex items-center justify-center text-white"><ExternalLink size={20}/></div><span className="text-[10px] font-bold text-slate-600">LINE</span></button>
+                    <button onClick={handleCopyLink} className="flex flex-col items-center gap-2 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all"><div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-600"><Copy size={20}/></div><span className="text-[10px] font-bold text-slate-600">コピー</span></button>
+                    <button onClick={handleShareMail} className="flex flex-col items-center gap-2 p-3 bg-blue-50 rounded-2xl hover:bg-blue-100 active:scale-95 transition-all"><div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white"><Mail size={20}/></div><span className="text-[10px] font-bold text-slate-600">メール</span></button>
                  </div>
               </div>
               <div className="p-4 bg-white border-t border-slate-100">
@@ -416,13 +424,20 @@ export default function EventEdit({ params }: Props) {
         {/* === EDIT TAB === */}
         {activeTab === "edit" && (
           <div className="h-full overflow-y-auto pb-32 p-4 space-y-6">
+            
+            {/* HERO */}
             <div className="pt-4 text-center">
                <h2 className="text-lg font-bold text-slate-800">パンフレット編集画面</h2>
                <div className="w-12 h-1 bg-indigo-500 rounded-full mx-auto mt-2 opacity-20"></div>
             </div>
 
-            {/* Event Settings (Cover & Footer Links) */}
-            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100 space-y-6">
+            {/* CARD 1: COVER SETTINGS */}
+            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+               <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
+                  <Settings size={18} className="text-slate-400"/>
+                  <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
+               </div>
+               
                <div>
                   <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
                   <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
@@ -440,39 +455,53 @@ export default function EventEdit({ params }: Props) {
                      </label>
                   </div>
                </div>
-
-               <div>
-                 <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">アクションボタン設定 (任意)</label>
-                 <div className="space-y-3">
-                   <div className="flex items-center gap-3 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                     <MessageCircle size={18} className="text-slate-400"/>
-                     <input 
-                       className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-300"
-                       placeholder="アンケートURL (Google Formなど)" 
-                       value={footerLinks.survey || ""}
-                       onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }}
-                     />
-                   </div>
-                   <div className="flex items-center gap-3 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                     <Heart size={18} className="text-slate-400"/>
-                     <input 
-                       className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-300"
-                       placeholder="寄付・支援URL" 
-                       value={footerLinks.donation || ""}
-                       onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }}
-                     />
-                   </div>
-                 </div>
-               </div>
-
                {isEventDirty && (
-                 <div className="flex justify-end pt-2">
+                 <div className="flex justify-end pt-4">
                    <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
                  </div>
                )}
             </section>
 
-            {/* Blocks */}
+            {/* CARD 2: ACTION SETTINGS (NEW!) */}
+            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+               <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
+                  <LinkIcon size={18} className="text-slate-400"/>
+                  <h3 className="text-sm font-bold text-slate-600">アクションボタン設定</h3>
+               </div>
+               <div className="space-y-4">
+                   <div>
+                     <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">アンケート URL</label>
+                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                       <MessageCircle size={18} className="text-slate-400 shrink-0"/>
+                       <NoZoomInput 
+                         className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
+                         placeholder="https://forms.google.com/..." 
+                         value={footerLinks.survey || ""}
+                         onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }}
+                       />
+                     </div>
+                   </div>
+                   <div>
+                     <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">寄付・支援 URL</label>
+                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                       <Heart size={18} className="text-slate-400 shrink-0"/>
+                       <NoZoomInput 
+                         className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
+                         placeholder="https://..." 
+                         value={footerLinks.donation || ""}
+                         onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }}
+                       />
+                     </div>
+                   </div>
+               </div>
+               {isEventDirty && (
+                 <div className="flex justify-end pt-4">
+                   <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
+                 </div>
+               )}
+            </section>
+
+            {/* BLOCKS */}
             <div className="space-y-4">
                 {blocks.map((b, i) => (
                     <BlockCard 
@@ -497,8 +526,9 @@ export default function EventEdit({ params }: Props) {
         {/* === LIVE TAB === */}
         {activeTab === "live" && (
           <div className="h-full flex flex-col relative bg-slate-50">
-            {/* 1. Status */}
+            {/* 1. Status Panel */}
             <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-30">
+               {/* Encore Status */}
                <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                      <div className={`w-2 h-2 rounded-full ${encoreRevealed ? 'bg-pink-500 animate-pulse' : 'bg-slate-300'}`}></div>
@@ -506,11 +536,14 @@ export default function EventEdit({ params }: Props) {
                   </div>
                   <button onClick={toggleEncore} className={`px-4 py-1.5 rounded-full font-bold text-[10px] border active:scale-95 transition-all ${encoreRevealed?'bg-pink-500 text-white border-pink-500':'bg-white text-slate-500 border-slate-200'}`}>切り替え</button>
                </div>
+               
+               {/* Break Status Panel */}
                <div className="p-4 bg-slate-50/50">
                   {activeInfo?.item.type === "break" ? (
                      <div className="flex items-center gap-4 bg-orange-50 border border-orange-100 p-3 rounded-2xl animate-in slide-in-from-top-1">
                         <div className="flex-1">
                            <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest flex items-center gap-1"><Coffee size={10}/> 休憩中</div>
+                           {/* LIVE TIMER DISPLAY FIX */}
                            <div className="text-3xl font-black text-slate-800 tabular-nums font-mono leading-none mt-1">
                               {(() => {
                                  if (!activeInfo.item.timerEnd) return "--:--";
@@ -532,7 +565,7 @@ export default function EventEdit({ params }: Props) {
                            <button onClick={() => startBreak(15)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">15分</button>
                            <button onClick={() => startBreak(20)} className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold active:scale-95">20分</button>
                            <div className="w-px bg-slate-300 mx-1"></div>
-                           <input type="number" className="w-12 bg-white border border-slate-200 rounded-lg text-center text-xs font-bold" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
+                           <NoZoomInput type="number" className="w-12 !bg-white border border-slate-200 !rounded-lg text-center !text-xs font-bold !p-0" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
                            <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 bg-slate-800 text-white rounded-lg text-xs font-bold active:scale-95">開始</button>
                         </div>
                      </div>
@@ -699,22 +732,22 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                       <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 cursor-pointer transition-colors z-10"><Camera size={20} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'single')} /></label>
                     </div>
                     <div className="flex-1 space-y-3">
-                      <InputField label="お名前"><input className="w-full bg-slate-50 px-4 py-3 rounded-xl text-base font-bold outline-none" placeholder="氏名" value={content.author||""} onChange={e => handleChange({...content, author: e.target.value})} /></InputField>
-                      <InputField label="肩書き"><input className="w-full bg-slate-50 px-4 py-3 rounded-xl text-sm outline-none" placeholder="例: 主催者" value={content.role||""} onChange={e => handleChange({...content, role: e.target.value})} /></InputField>
+                      <InputField label="お名前"><NoZoomInput placeholder="氏名" value={content.author||""} onChange={e => handleChange({...content, author: e.target.value})} /></InputField>
+                      <InputField label="肩書き"><NoZoomInput placeholder="例: 主催者" value={content.role||""} onChange={e => handleChange({...content, role: e.target.value})} /></InputField>
                     </div>
                   </div>
-                  <InputField label="挨拶文"><textarea className="w-full bg-slate-50 p-4 rounded-xl text-base h-40 outline-none resize-none" placeholder="本文..." value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
+                  <InputField label="挨拶文"><NoZoomTextArea className="h-40" placeholder="本文..." value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
                 </>
               )}
               {block.type === "free" && (
                   <>
-                    <InputField label="タイトル"><input className="w-full bg-slate-50 px-4 py-3 rounded-xl text-base font-bold outline-none" placeholder="タイトル" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
-                    <InputField label="本文"><textarea className="w-full bg-slate-50 p-4 rounded-xl text-base h-40 outline-none resize-none" placeholder="本文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
+                    <InputField label="タイトル"><NoZoomInput placeholder="タイトル" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
+                    <InputField label="本文"><NoZoomTextArea className="h-40" placeholder="本文" value={content.text||""} onChange={e => handleChange({...content, text: e.target.value})} /></InputField>
                   </>
               )}
               {block.type === "gallery" && (
                   <>
-                    <InputField label="タイトル"><input className="w-full bg-slate-50 px-4 py-3 rounded-xl text-base font-bold outline-none" placeholder="Memories" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
+                    <InputField label="タイトル"><NoZoomInput placeholder="Memories" value={content.title||""} onChange={e => handleChange({...content, title: e.target.value})} /></InputField>
                     <div className="grid grid-cols-3 gap-3">
                       {(content.images || (content.url ? [content.url] : [])).map((url:string, i:number) => (
                           <div key={i} className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden shadow-sm">
@@ -724,93 +757,74 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                        ))}
                        <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 cursor-pointer"><Plus /><input type="file" className="hidden" accept="image/*" onChange={e => handleUpload(e, 'gallery')} /></label>
                     </div>
-                    <InputField label="キャプション"><input className="w-full bg-slate-50 px-4 py-3 rounded-xl text-sm outline-none" placeholder="説明..." value={content.caption||""} onChange={e => handleChange({...content, caption: e.target.value})} /></InputField>
+                    <InputField label="キャプション"><NoZoomInput placeholder="説明..." value={content.caption||""} onChange={e => handleChange({...content, caption: e.target.value})} /></InputField>
                   </>
               )}
+              
+              {/* === PROFILE EDIT (Mobile Optimized) === */}
               {block.type === "profile" && (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {(content.people || []).map((p: any, i: number) => (
-                    <div key={i} className="flex gap-4 p-4 bg-slate-50 rounded-[1.5rem] relative border border-slate-100">
-                      <div className="relative w-20 h-20 bg-white rounded-2xl overflow-hidden shrink-0 border border-slate-100 group">
-                        {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-6 text-slate-300"/>}
-                        <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer z-10"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={e => handleUpload(e, 'profile', i)} /></label>
-                      </div>
-                      <div className="flex-1 space-y-2 pr-8">
-                        <input className="w-full bg-white px-3 py-2 rounded-lg text-base font-bold outline-none" placeholder="名前" value={p.name} onChange={e => {const np=[...content.people]; np[i].name=e.target.value; handleChange({...content, people:np})}} />
-                        <input className="w-full bg-white px-3 py-2 rounded-lg text-sm outline-none" placeholder="役割" value={p.role} onChange={e => {const np=[...content.people]; np[i].role=e.target.value; handleChange({...content, people:np})}} />
-                        {/* SNS Inputs */}
-                        <div className="flex gap-2">
-                           <div className="flex-1 flex items-center bg-white px-2 rounded-lg border border-slate-200">
-                              <Twitter size={14} className="text-slate-400 mr-2"/>
-                              <input className="w-full py-1.5 text-xs outline-none" placeholder="X (Twitter) URL" value={p.sns?.twitter||""} onChange={e=>{const np=[...content.people]; np[i].sns={...p.sns, twitter:e.target.value}; handleChange({...content, people:np})}}/>
-                           </div>
-                           <div className="flex-1 flex items-center bg-white px-2 rounded-lg border border-slate-200">
-                              <Instagram size={14} className="text-slate-400 mr-2"/>
-                              <input className="w-full py-1.5 text-xs outline-none" placeholder="Insta URL" value={p.sns?.instagram||""} onChange={e=>{const np=[...content.people]; np[i].sns={...p.sns, instagram:e.target.value}; handleChange({...content, people:np})}}/>
-                           </div>
-                           <div className="flex-1 flex items-center bg-white px-2 rounded-lg border border-slate-200">
-                              <Globe size={14} className="text-slate-400 mr-2"/>
-                              <input className="w-full py-1.5 text-xs outline-none" placeholder="Web URL" value={p.sns?.website||""} onChange={e=>{const np=[...content.people]; np[i].sns={...p.sns, website:e.target.value}; handleChange({...content, people:np})}}/>
-                           </div>
-                        </div>
-                        <textarea className="w-full bg-white px-3 py-2 rounded-lg text-sm h-20 outline-none resize-none" placeholder="紹介文" value={p.bio} onChange={e => {const np=[...content.people]; np[i].bio=e.target.value; handleChange({...content, people:np})}} />
-                      </div>
-                      <button onClick={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})} className="absolute top-3 right-3 p-2 bg-slate-100 rounded-full text-slate-300 hover:text-red-500"><Trash2 size={18}/></button>
-                    </div>
+                    <ProfileEditor key={i} p={p} 
+                      onChange={(newP:any) => {const np=[...content.people]; np[i]=newP; handleChange({...content, people:np})}}
+                      onDelete={() => handleChange({...content, people: content.people.filter((_:any,idx:number)=>idx!==i)})}
+                      onUpload={(e:any) => handleUpload(e, 'profile', i)}
+                    />
                   ))}
                   <button onClick={() => handleChange({...content, people: [...(content.people||[]), {name:"",role:"",bio:"",image:"", sns:{}}]})} className="w-full py-4 bg-white border-2 border-dashed border-slate-200 text-slate-500 rounded-2xl font-bold text-sm">+ 出演者を追加</button>
                 </div>
               )}
+
+              {/* === PROGRAM EDIT (Accordion) === */}
               {block.type === "program" && (
                   <div className="space-y-4">
                     {(content.items || []).map((item: any, i: number) => (
                         <div key={i} className="group relative">
+                            {/* Section: Simple & Sortable */}
                             {item.type === "section" && (
                               <div className="flex gap-2 items-center mt-6 mb-2">
-                                <div className="flex-1 border-b border-indigo-200"><input className="w-full bg-transparent py-2 text-indigo-700 font-bold text-sm outline-none" placeholder="セクション見出し" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
+                                <div className="flex flex-col gap-1 mr-1">
+                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowUp size={14}/></button>
+                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-indigo-500"><ArrowDown size={14}/></button>
+                                </div>
+                                <div className="flex-1 border-b border-indigo-200"><NoZoomInput className="!bg-transparent !py-2 text-indigo-700 font-bold text-sm !border-none !ring-0 !px-0" placeholder="セクション見出し" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
                                 <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
                               </div>
                             )}
+                            
+                            {/* Memo */}
                             {item.type === "memo" && (
-                              <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2">
-                                 <textarea className="flex-1 bg-transparent text-sm text-yellow-900 outline-none resize-none" rows={2} placeholder="メモ" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
+                              <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2 items-center">
+                                 <div className="flex flex-col gap-1 mr-1">
+                                   <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowUp size={12}/></button>
+                                   <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowDown size={12}/></button>
+                                 </div>
+                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0" rows={2} placeholder="メモ" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
                                  <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
                               </div>
                             )}
+
+                            {/* Song / Break Item (Accordion) */}
                             {(item.type === "song" || item.type === "break") && (
-                                <div className={`p-4 bg-slate-50 rounded-[1.5rem] relative space-y-3 border border-slate-100 ${item.isEncore ? 'ring-2 ring-pink-100 bg-pink-50/30' : ''}`}>
-                                    <div className="flex gap-3 items-start">
-                                        <div className="flex flex-col mt-2 gap-1">
-                                           <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-slate-600 text-[10px]">▲</button>
-                                           <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-slate-300 hover:text-slate-600 text-[10px]">▼</button>
-                                        </div>
-                                        <div className="flex-1 space-y-3">
-                                            <div className="flex gap-2">
-                                                <InputField label={item.type==="break" ? "休憩名" : "曲名"}><input className="w-full bg-white px-3 py-3 rounded-xl text-base font-bold outline-none" placeholder={item.type==="break"?"休憩":"曲タイトル"} value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
-                                                <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="mt-6 p-2 text-slate-300 hover:text-red-500"><Trash2 size={18}/></button>
-                                            </div>
-                                            {item.type === "break" ? (
-                                                <InputField label="目安時間"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="例: 15分" value={item.duration} onChange={e => { const ni=[...content.items]; ni[i].duration=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
-                                            ) : (
-                                                <>
-                                                  <div className="grid grid-cols-2 gap-3">
-                                                      <InputField label="作曲者"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="Artist" value={item.composer} onChange={e => { const ni=[...content.items]; ni[i].composer=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
-                                                      <InputField label="演奏者"><input className="w-full bg-white px-3 py-3 rounded-xl text-sm outline-none" placeholder="Performer" value={item.performer||""} onChange={e => { const ni=[...content.items]; ni[i].performer=e.target.value; handleChange({...content, items:ni}); }} /></InputField>
-                                                  </div>
-                                                  <div className="flex justify-end pt-1">
-                                                      <button onClick={() => { const ni=[...content.items]; ni[i].isEncore=!ni[i].isEncore; handleChange({...content, items:ni}); }} className={`flex items-center gap-1 px-3 py-1.5 rounded-full border transition-all ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-300 grayscale'}`}><Star size={14} fill={item.isEncore ? "currentColor" : "none"} /><span className="text-[10px] font-bold">アンコール</span></button>
-                                                  </div>
-                                                </>
-                                            )}
-                                            {item.type !== "break" && <InputField label="曲解説"><textarea className="w-full bg-white px-3 py-3 rounded-xl text-sm h-20 outline-none resize-none" placeholder="解説..." value={item.description} onChange={e => { const ni=[...content.items]; ni[i].description=e.target.value; handleChange({...content, items:ni}); }} /></InputField>}
-                                        </div>
-                                    </div>
-                                </div>
+                                <ProgramItemEditor 
+                                  item={item} 
+                                  index={i} 
+                                  total={content.items.length}
+                                  onChange={(newItem:any) => {const ni=[...content.items]; ni[i]=newItem; handleChange({...content, items:ni})}}
+                                  onDelete={() => {const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni})}}
+                                  onMove={(dir: 'up'|'down') => {
+                                     const ni=[...content.items];
+                                     const to = dir==='up' ? i-1 : i+1;
+                                     if(to>=0 && to<ni.length) { [ni[i],ni[to]]=[ni[to],ni[i]]; handleChange({...content, items:ni}); }
+                                  }}
+                                />
                             )}
                         </div>
                     ))}
+                    
+                    {/* Add Buttons */}
                     <div className="grid grid-cols-2 gap-3 pt-2">
-                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"song",title:"",composer:"",description:"",isEncore:false}]})} className="py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-indigo-100">+ 曲</button>
+                      <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"song",title:"",composer:"",performer:"",description:"",isEncore:false}]})} className="py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-indigo-100">+ 曲</button>
                       <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"break",title:"休憩",duration:"15分"}]})} className="py-3 bg-slate-100 text-slate-600 font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-slate-200">+ 休憩</button>
                       <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"section",title:"新しいセクション"}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ 見出し</button>
                       <button onClick={() => handleChange({...content, items: [...(content.items||[]), {type:"memo",title:""}]})} className="py-3 bg-white border border-slate-200 text-slate-500 font-bold rounded-xl text-xs flex items-center justify-center gap-2">+ メモ</button>
@@ -818,12 +832,135 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                   </div>
               )}
            </div>
+           
            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
              <button onClick={() => onDelete(block.id)} className="text-red-400 hover:text-red-600 p-2 text-xs font-bold flex items-center gap-1"><Trash2 size={16}/> 削除</button>
              {isDirty && (<button onClick={handleSave} disabled={saving} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all hover:bg-slate-800">{saving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>} 保存</button>)}
            </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Helper Editors (Accordion Style) ---
+
+function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+       {/* Header: Always visible */}
+       <div className="flex items-center gap-3 p-3 bg-white cursor-pointer select-none" onClick={() => setOpen(!open)}>
+          <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-100 shrink-0">
+             {p.image ? <img src={p.image} className="w-full h-full object-cover" alt=""/> : <User className="m-auto mt-2 text-slate-300" size={20}/>}
+          </div>
+          <div className="flex-1 min-w-0">
+             <div className="text-sm font-bold truncate">{p.name || "名称未設定"}</div>
+             {!open && <div className="text-[10px] text-slate-400 truncate">{p.role}</div>}
+          </div>
+          <ChevronDown size={16} className={`text-slate-300 transition-transform ${open?'rotate-180':''}`}/>
+       </div>
+
+       {/* Body: Accordion */}
+       {open && (
+         <div className="p-4 space-y-4 border-t border-slate-100 animate-in slide-in-from-top-1">
+            <div className="flex gap-4">
+               <div className="relative w-20 h-20 bg-white rounded-xl border border-slate-200 shrink-0 group">
+                  {p.image ? <img src={p.image} className="w-full h-full object-cover rounded-xl" alt=""/> : <User className="m-auto mt-6 text-slate-300"/>}
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer z-10"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={onUpload} /></label>
+               </div>
+               <div className="flex-1 space-y-2">
+                  <NoZoomInput placeholder="名前" value={p.name} onChange={e => onChange({...p, name: e.target.value})} />
+                  <NoZoomInput placeholder="役割 (例: Violin)" value={p.role} onChange={e => onChange({...p, role: e.target.value})} />
+               </div>
+            </div>
+            
+            {/* SNS */}
+            <div className="space-y-2">
+               <label className="text-[10px] font-bold text-slate-400">SNSリンク</label>
+               <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-slate-200">
+                  <Twitter size={14} className="text-slate-400 shrink-0"/>
+                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="X (Twitter) URL" value={p.sns?.twitter||""} onChange={e=>onChange({...p, sns:{...p.sns, twitter:e.target.value}})}/>
+               </div>
+               <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-slate-200">
+                  <Instagram size={14} className="text-slate-400 shrink-0"/>
+                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="Instagram URL" value={p.sns?.instagram||""} onChange={e=>onChange({...p, sns:{...p.sns, instagram:e.target.value}})}/>
+               </div>
+               <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-slate-200">
+                  <Globe size={14} className="text-slate-400 shrink-0"/>
+                  <NoZoomInput className="!bg-transparent !py-1.5 !px-0 !border-none !ring-0 text-xs" placeholder="Website URL" value={p.sns?.website||""} onChange={e=>onChange({...p, sns:{...p.sns, website:e.target.value}})}/>
+               </div>
+            </div>
+
+            <NoZoomTextArea className="h-24 bg-white" placeholder="紹介文" value={p.bio} onChange={e => onChange({...p, bio: e.target.value})} />
+            
+            <div className="flex justify-end">
+               <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
+            </div>
+         </div>
+       )}
+    </div>
+  );
+}
+
+function ProgramItemEditor({ item, index, total, onChange, onDelete, onMove }: any) {
+  const [open, setOpen] = useState(false);
+  const isBreak = item.type === "break";
+
+  return (
+    <div className={`bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden ${item.isEncore ? 'ring-2 ring-pink-100 bg-pink-50/20' : ''}`}>
+       <div className="flex items-center p-3 gap-3 bg-white cursor-pointer select-none" onClick={() => setOpen(!open)}>
+          {/* Reorder Buttons */}
+          <div className="flex flex-col gap-0.5" onClick={e=>e.stopPropagation()}>
+             <button onClick={() => onMove('up')} disabled={index===0} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-0.5"><ArrowUp size={12}/></button>
+             <button onClick={() => onMove('down')} disabled={index===total-1} className="text-slate-300 hover:text-indigo-500 disabled:opacity-0 p-0.5"><ArrowDown size={12}/></button>
+          </div>
+          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-400">
+             {isBreak ? <Coffee size={16}/> : <Music size={16}/>}
+          </div>
+          <div className="flex-1 min-w-0">
+             <div className="text-sm font-bold truncate text-slate-800">{item.title || (isBreak ? "休憩" : "曲名未設定")}</div>
+             <div className="text-[10px] text-slate-400 truncate">{isBreak ? item.duration : item.composer}</div>
+          </div>
+          {item.isEncore && <Star size={14} className="text-pink-400 fill-pink-400"/>}
+          <ChevronDown size={16} className={`text-slate-300 transition-transform ${open?'rotate-180':''}`}/>
+       </div>
+
+       {open && (
+         <div className="p-4 space-y-4 border-t border-slate-100 animate-in slide-in-from-top-1">
+            <div className="flex gap-2">
+                <div className="flex-1">
+                   <InputField label={isBreak ? "休憩名" : "曲名"}>
+                      <NoZoomInput className="bg-white font-bold" placeholder={isBreak?"休憩":"曲タイトル"} value={item.title} onChange={e => onChange({...item, title:e.target.value})} />
+                   </InputField>
+                </div>
+            </div>
+            
+            {isBreak ? (
+                <InputField label="目安時間"><NoZoomInput className="bg-white" placeholder="例: 15分" value={item.duration} onChange={e => onChange({...item, duration:e.target.value})} /></InputField>
+            ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                      <InputField label="作曲者"><NoZoomInput className="bg-white" placeholder="Artist" value={item.composer} onChange={e => onChange({...item, composer:e.target.value})} /></InputField>
+                      <InputField label="演奏者"><NoZoomInput className="bg-white" placeholder="Performer" value={item.performer||""} onChange={e => onChange({...item, performer:e.target.value})} /></InputField>
+                  </div>
+                  <InputField label="曲解説"><NoZoomTextArea className="bg-white h-24" placeholder="解説..." value={item.description} onChange={e => onChange({...item, description:e.target.value})} /></InputField>
+                  
+                  <div className="flex justify-between items-center pt-2">
+                      <button onClick={() => onChange({...item, isEncore: !item.isEncore})} className={`flex items-center gap-1 px-3 py-1.5 rounded-full border transition-all text-xs font-bold ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-slate-200 text-slate-400 grayscale'}`}>
+                         <Star size={14} fill={item.isEncore ? "currentColor" : "none"} /> アンコール
+                      </button>
+                      <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
+                  </div>
+                </>
+            )}
+            {isBreak && (
+                <div className="flex justify-end">
+                   <button onClick={onDelete} className="text-red-400 text-xs font-bold flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded"><Trash2 size={14}/> 削除</button>
+                </div>
+            )}
+         </div>
+       )}
     </div>
   );
 }
