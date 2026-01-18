@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   /* アプリ全体のテーマカラー（クリーム色の紙） */
@@ -6,18 +8,12 @@
   --foreground: #2C2C2C;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* ▼▼▼ ここが重要です ▼▼▼ */
 html,
 body {
-  /* ▼ overflow: hidden; を削除しました。これでスクロールが復活します ▼ */
+  /* bodyの高さを画面いっぱいに確保 */
   height: 100%;
-  /* touch-action は残しておくとスマホでの操作感が良くなります */
+  /* スクロール操作をスムーズにし、意図しないズームを防ぐ */
   touch-action: manipulation;
 }
 
