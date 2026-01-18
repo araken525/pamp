@@ -253,10 +253,22 @@ export default function EventEdit({ params }: Props) {
   }
 
   async function saveBlockContent(blockId: string, content: any) {
-    setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content } : b)));
-    const { error } = await supabase.from("blocks").update({ content }).eq("id", blockId);
-    if (error) throw error;
+  setBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, content } : b)));
+
+  // ★ select を付ける：更新できた行が返る
+  const { data, error } = await supabase
+    .from("blocks")
+    .update({ content })
+    .eq("id", blockId)
+    .select("id");
+
+  if (error) throw error;
+
+  // ★ data が空なら「更新0件」= RLS or 条件不一致が濃厚
+  if (!data || data.length === 0) {
+    throw new Error("保存できていません（更新0件）。RLS/owner_id/条件を確認してください。");
   }
+}
 
   async function deleteBlock(blockId: string) {
     if (!confirm("削除してよろしいですか？")) return;
