@@ -23,7 +23,8 @@ import {
   MessageCircle,
   Heart,
   ExternalLink,
-  Calendar
+  Calendar,
+  Clock
 } from "lucide-react";
 import { Cinzel, Zen_Old_Mincho, Cormorant_Garamond } from 'next/font/google';
 import { clsx, type ClassValue } from "clsx";
@@ -57,15 +58,15 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// --- Theme Config (Pure Paper Style) ---
+// --- Theme Config ---
 function getThemeColors(palette: any) {
-  const accent = palette?.accent ?? "#8B7E66"; // Desaturated Gold/Brown for elegance
+  const accent = palette?.accent ?? "#B48E55"; // Classic Antique Gold
   return {
-    "--bg": "#F9F8F2", // Warm Cream Paper
-    "--text": "#2C2C2C", // Soft Ink Black
+    "--bg": "#F9F8F2", 
+    "--text": "#2A2A2A", 
     "--accent": accent,
-    "--muted": "#9ca3af",
-    "--line": "#E0DED5", // Subtle paper crease line
+    "--muted": "#888888",
+    "--line": "#E5E5E5",
   } as React.CSSProperties;
 }
 
@@ -143,8 +144,8 @@ export default function EventViewer({ params }: Props) {
         body { overflow-x: hidden; touch-action: pan-y; }
       `}</style>
 
-      {/* Real Paper Texture Overlay */}
-      <div className="fixed inset-0 pointer-events-none z-[1] mix-blend-multiply opacity-40" 
+      {/* Paper Texture */}
+      <div className="fixed inset-0 pointer-events-none z-0 mix-blend-multiply opacity-[0.04]" 
            style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
       
       {/* Break Timer Float */}
@@ -155,9 +156,9 @@ export default function EventViewer({ params }: Props) {
              animate={{ y: 0, opacity: 1 }}
              exit={{ y: 100, opacity: 0 }}
              transition={{ type: "spring", stiffness: 200, damping: 20 }}
-             className="fixed bottom-8 right-6 z-50 backdrop-blur-lg border border-[var(--accent)]/30 p-5 rounded-2xl shadow-xl flex flex-col items-center gap-1 bg-[#F9F8F2]/90 text-[var(--text)]"
+             className="fixed bottom-8 right-6 z-50 backdrop-blur-lg border border-[var(--accent)]/30 p-5 rounded-[1.5rem] shadow-2xl flex flex-col items-center gap-1.5 bg-white/80 text-[var(--accent)]"
            >
-              <span className="text-[10px] font-bold tracking-widest flex items-center gap-1.5 animate-pulse text-[var(--accent)]">
+              <span className="text-[9px] font-bold tracking-widest flex items-center gap-1.5 animate-pulse">
                 <Coffee size={12}/> 休憩中
               </span>
               <Countdown target={activeBreak.end} />
@@ -201,7 +202,7 @@ function LoadingScreen() {
   );
 }
 
-// === 1. HERO: The "Fit-Text" Title ===
+// === 1. HERO: White Fog Gradient (Latest) ===
 function Hero({ event }: any) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
@@ -211,35 +212,33 @@ function Hero({ event }: any) {
   return (
     <motion.header 
       ref={ref}
-      className="relative h-[95vh] w-full overflow-hidden flex flex-col justify-end items-center text-center px-4 pb-20 mb-24"
+      className="relative h-[95vh] w-full overflow-hidden flex flex-col justify-end items-center text-center px-6 pb-24 mb-24"
     >
-      {/* Background Image */}
       <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
         {event.cover_image ? (
-          <img src={event.cover_image} className="w-full h-full object-cover brightness-90" alt="cover" />
+          <img src={event.cover_image} className="w-full h-full object-cover" alt="cover" />
         ) : (
-          <div className="w-full h-full bg-stone-300" />
+          <div className="w-full h-full bg-stone-200" />
         )}
-        
-        {/* Natural Blend: Transparent -> Paper Color */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg)] via-[var(--bg)]/70 to-transparent" />
+        {/* White Fog Gradient: Transparent -> White/Paper Color */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg)]/60 to-[var(--bg)]" />
       </motion.div>
 
-      {/* Content */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto text-[var(--text)]">
+      {/* Content: Ink Black Text */}
+      <div className="relative z-10 max-w-4xl w-full mx-auto text-[var(--text)]">
         <motion.div 
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="flex flex-col items-center space-y-4 w-full"
+          className="flex flex-col items-center space-y-10"
         >
           {/* Label */}
-          <div className="flex flex-col items-center gap-3 opacity-60 mb-2">
-             <span className={cn("text-[10px] tracking-[0.4em] uppercase font-bold", cinzel.className)}>
+          <div className="flex flex-col items-center gap-3 opacity-60">
+             <span className={cn("text-xs tracking-[0.3em] uppercase font-bold", cinzel.className)}>
                Digital Pamphlet
              </span>
              <div className="h-px w-8 bg-current"></div>
           </div>
 
-          {/* Title: 1-Line Fit Logic using Container Queries */}
+          {/* Title: 1-Line Logic */}
           <div className="w-full" style={{ containerType: 'inline-size' }}>
              <h1 className={cn(
                "font-bold leading-none tracking-tight text-slate-900 drop-shadow-sm whitespace-nowrap text-center", 
@@ -250,19 +249,19 @@ function Hero({ event }: any) {
           </div>
 
           {/* Info Block */}
-          <div className="flex flex-col items-center gap-6 pt-8 border-t border-black/10 w-full max-w-lg mt-6">
+          <div className="flex flex-col items-center gap-6 pt-6 border-t border-black/10 w-full max-w-lg">
              <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-10">
                 {event.date && (
-                    <div className={cn("text-base sm:text-lg tracking-widest flex items-center gap-2 border-b border-transparent pb-1", cormorant.className)}>
-                       <Calendar size={14} className="text-[var(--accent)]"/>
+                    <div className={cn("text-lg tracking-wide flex items-center gap-2", cormorant.className)}>
+                       <Calendar size={16} className="text-[var(--accent)]"/>
                        {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })}
-                       <span className="opacity-40 mx-1">|</span>
+                       <span className="opacity-50 mx-1">/</span>
                        {new Date(event.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
                     </div>
                 )}
                 {event.location && (
-                    <div className="text-sm sm:text-base font-serif flex items-center gap-2 tracking-widest uppercase opacity-80 border-b border-transparent pb-1">
-                       <MapPin size={14} className="text-[var(--accent)]"/> <span>{event.location}</span>
+                    <div className="text-base font-serif flex items-center gap-2 tracking-wider uppercase opacity-80">
+                       <MapPin size={16} className="text-[var(--accent)]"/> <span>{event.location}</span>
                     </div>
                 )}
              </div>
@@ -291,13 +290,11 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
   );
 
   switch (block.type) {
-    // === 2. GREETING: Refreshed "Letter" Layout ===
     case "greeting":
       return (
         <Wrapper>
           <SectionHeader title="Greeting" subtitle="ご挨拶" />
           <div className="max-w-2xl mx-auto bg-white/40 p-8 rounded-sm shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)] border border-[var(--line)]">
-             {/* Header Area */}
              <div className="flex flex-col items-center text-center mb-8">
                {content.image && (
                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-[var(--bg)] shadow-md mb-4 sepia-[0.2]">
@@ -309,7 +306,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
                <div className="w-8 h-px bg-[var(--accent)] mt-4 opacity-50"></div>
              </div>
              
-             {/* Body */}
              <div className="prose prose-stone prose-p:font-serif prose-p:text-[var(--text)] prose-p:opacity-90 prose-p:leading-loose text-justify">
                 <p className="whitespace-pre-wrap">{content.text}</p>
              </div>
@@ -317,15 +313,12 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
         </Wrapper>
       );
 
-    // === 3. PROGRAM: Center Focus & "Playing" Refreshed ===
+    // === 2. PROGRAM: Reverted to Vertical Line Style (Turn 9) ===
     case "program":
       return (
         <Wrapper>
           <SectionHeader title="Program" subtitle="プログラム" />
-          <div className="relative space-y-16">
-            {/* Center Line */}
-            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-[var(--line)] -translate-x-1/2 opacity-50 hidden md:block"></div>
-            
+          <div className="relative pl-6 md:pl-8 border-l border-[var(--line)] space-y-12">
             {(content.items || []).map((item: any, i: number) => (
               <ProgramItem key={i} item={item} index={i} encoreRevealed={encoreRevealed} />
             ))}
@@ -333,7 +326,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
         </Wrapper>
       );
 
-    // === 5. ARTIST: Refreshed Elegant Style ===
     case "profile":
       return (
         <Wrapper>
@@ -346,26 +338,30 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
         </Wrapper>
       );
 
-    // === 4. GALLERY: Mincho & Elegant Grid ===
+    // === 3. GALLERY: Reverted to Watermark Style (Turn 9) ===
     case "gallery":
       return (
         <Wrapper>
-          <div className="py-10 border-t border-b border-[var(--line)]/50">
-             <div className="text-center mb-10">
-                <h3 className={cn("text-2xl font-bold tracking-[0.2em] font-serif text-[var(--text)]")}>{content.title || "追憶"}</h3>
-                <p className={cn("text-[10px] opacity-50 tracking-widest mt-2 uppercase", cinzel.className)}>Gallery</p>
-                {content.caption && <p className="text-sm font-serif mt-4 opacity-70 max-w-md mx-auto">{content.caption}</p>}
+          <div className="relative py-12">
+             {/* Watermark Background */}
+             <div className={cn(
+               "absolute top-0 left-1/2 -translate-x-1/2 text-[15vw] font-bold opacity-[0.03] select-none pointer-events-none whitespace-nowrap z-0",
+               cinzel.className
+             )}>
+               GALLERY
+             </div>
+             
+             {/* Header */}
+             <div className="text-center mb-10 relative z-10">
+                <h3 className={cn("text-lg font-bold tracking-widest uppercase mb-2 text-[var(--accent)]")}>{content.title || "Memories"}</h3>
+                {content.caption && <p className="text-xs opacity-60 font-serif max-w-md mx-auto leading-relaxed">{content.caption}</p>}
              </div>
 
-             <div className="grid grid-cols-2 md:grid-cols-3 gap-6 px-2">
+             {/* Grid Layout */}
+             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 relative z-10">
                 {(content.images || []).map((url: string, i: number) => (
-                   <div key={i} className={cn(
-                     "relative aspect-[3/4] overflow-hidden shadow-sm bg-white p-2",
-                     i % 2 === 0 ? "rotate-1" : "-rotate-1" // Slight organic tilt
-                   )}>
-                      <div className="w-full h-full overflow-hidden grayscale-[0.1] hover:grayscale-0 transition-all duration-700">
-                        <img src={url} className="w-full h-full object-cover hover:scale-105 transition-transform duration-1000" alt="" />
-                      </div>
+                   <div key={i} className="aspect-square relative overflow-hidden group bg-stone-100 shadow-sm">
+                      <img src={url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
                    </div>
                 ))}
              </div>
@@ -399,11 +395,11 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
 
 function SectionHeader({ title, subtitle }: any) {
   return (
-    <div className="text-center mb-24">
+    <div className="text-center mb-20">
       <h2 className={cn("text-3xl font-normal tracking-[0.2em] uppercase mb-2 text-[var(--accent)]", cinzel.className)}>
         {title}
       </h2>
-      <span className="text-xs tracking-[0.1em] font-serif opacity-60 block border-b border-[var(--accent)]/30 w-12 mx-auto pb-2">{subtitle}</span>
+      <span className="text-[10px] tracking-[0.3em] opacity-40 uppercase block">{subtitle}</span>
     </div>
   );
 }
@@ -416,104 +412,104 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
 
   if (item.isEncore && !encoreRevealed) return null;
 
-  // --- Section Divider ---
   if (isSection) {
     return (
-      <div className="relative py-10 flex justify-center">
-        <div className="absolute inset-x-0 top-1/2 h-px bg-[var(--line)] -z-10 opacity-60"></div>
-        <div className="bg-[var(--bg)] px-6 py-1 border border-[var(--line)] rounded-full">
-          <span className="text-sm font-bold tracking-[0.2em] font-serif text-[var(--text)]">
-            {item.title}
-          </span>
-        </div>
+      <div className="relative -ml-6 md:-ml-8 pt-8 pb-4">
+        <div className="absolute left-0 top-1/2 w-4 md:w-6 h-px bg-[var(--line)]"></div>
+        <span className={cn(
+          "ml-8 md:ml-10 text-sm font-bold tracking-[0.2em] uppercase font-serif block text-[var(--accent)]"
+        )}>
+          {item.title}
+        </span>
       </div>
     );
   }
 
-  // --- Memo ---
   if (item.type === "memo") {
     return (
-      <div className="text-center py-2 opacity-50">
+      <div className="pl-4 py-2 opacity-50">
         <span className={cn("text-xs italic tracking-wider", cormorant.className)}>* {item.title}</span>
       </div>
     );
   }
 
-  // --- Break ---
   if (isBreak) {
     return (
       <div className={cn(
-        "flex flex-col items-center justify-center py-8 gap-3 transition-opacity duration-500",
-        active ? "opacity-100" : "opacity-60"
+        "relative pl-6 py-6 transition-all duration-500",
+        active ? "opacity-100" : "opacity-50"
       )}>
-        <div className="h-8 w-px bg-[var(--line)] mb-2"></div>
-        <span className="text-sm font-bold tracking-[0.3em] font-serif border-y border-[var(--text)]/20 py-2 px-8">休 憩</span>
-        {active && item.timerEnd ? (
-           <span className="text-xs font-serif animate-pulse text-[var(--accent)]">（只今 休憩中）</span>
-        ) : (
-           <span className={cn("text-xs italic opacity-60", cormorant.className)}>{item.duration}</span>
-        )}
-        <div className="h-8 w-px bg-[var(--line)] mt-2"></div>
+        <div className={cn(
+           "absolute -left-[5px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 bg-[var(--bg)] z-10",
+           active ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--line)]"
+        )}></div>
+        
+        <div className="flex items-center gap-3">
+           <span className="text-xs font-bold tracking-[0.2em] uppercase">休 憩</span>
+           {active && item.timerEnd ? (
+              <span className="text-xs font-mono animate-pulse text-[var(--accent)]">Running</span>
+           ) : (
+              <span className={cn("text-xs italic opacity-60", cormorant.className)}>{item.duration}</span>
+           )}
+        </div>
       </div>
     );
   }
 
-  // --- Song Item (Center Focus) ---
+  // --- Song Item (Vertical Line Style) ---
   return (
-    <div className="relative group">
+    <div className="relative group pl-4">
+      {/* Timeline Node */}
+      <div className={cn(
+         "absolute -left-[5px] top-6 w-2.5 h-2.5 rounded-full border-2 transition-all duration-500 z-10 bg-[var(--bg)]",
+         active ? "border-[var(--accent)] bg-[var(--accent)] scale-125" : "border-[var(--line)]"
+      )}></div>
+
       <div 
-        className="cursor-pointer px-4 text-center"
+        className="cursor-pointer"
         onClick={() => item.description && setIsOpen(!isOpen)}
       >
-        {/* Playing Indicator: Japanese Vertical Style */}
-        {active && (
-          <div className="absolute top-0 right-2 md:right-1/4 animate-pulse flex flex-col items-center">
-             <div className="writing-vertical-rl text-[10px] font-bold tracking-widest text-[var(--accent)] border border-[var(--accent)]/30 px-1 py-2 rounded-sm bg-white/50">
-               演奏中
-             </div>
-          </div>
-        )}
+        <div className="flex flex-col gap-1">
+           {/* Active Indicator: "演奏中" */}
+           {active && (
+              <span className="text-[10px] font-bold tracking-widest flex items-center gap-1.5 mb-1 animate-pulse text-[var(--accent)]">
+                <Sparkles size={10}/> 演奏中
+              </span>
+           )}
 
-        <div className="flex flex-col items-center gap-3">
-           {/* Title: Big Center */}
-           <h3 className={cn(
-             "text-2xl md:text-3xl font-bold font-serif leading-tight transition-colors duration-500 text-slate-800", 
-             active ? "text-[var(--accent)] scale-105" : ""
-           )}>
-             {item.title}
-           </h3>
-           
-           <div className="w-full max-w-lg flex flex-col md:flex-row items-center justify-center md:justify-between gap-2 md:gap-8 opacity-80">
-              {/* Composer (Below Title) */}
-              <div className={cn("text-sm opacity-70 italic order-2 md:order-1", cormorant.className)}>
-                {item.composer}
-              </div>
-              
-              {/* Performer (Right, Mincho, Decorated) */}
-              {item.performer && (
-                 <div className="text-sm font-serif font-medium flex items-center gap-2 order-1 md:order-2">
-                    <span className="opacity-30">—</span> {item.performer}
-                 </div>
-              )}
+           {/* Row 1: Title & Composer */}
+           <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1 md:gap-8">
+              <h3 className={cn(
+                "text-xl md:text-2xl font-bold leading-snug font-serif transition-colors duration-500", 
+                active ? "text-[var(--accent)]" : "text-[var(--text)]"
+              )}>
+                {item.title}
+              </h3>
+              <span className={cn("text-sm opacity-60 italic shrink-0", cormorant.className)}>{item.composer}</span>
            </div>
            
-           {item.isEncore && (
-             <span className={cn("text-[9px] opacity-40 uppercase tracking-widest border border-current px-2 py-0.5 rounded-full mt-2", cinzel.className)}>Encore</span>
+           {/* Row 2: Performer */}
+           {item.performer && (
+              <div className="text-xs font-serif opacity-70 mt-1">
+                {item.performer}
+              </div>
            )}
+           
+           {item.isEncore && <span className={cn("text-[9px] mt-1 inline-block opacity-50 uppercase tracking-widest", cinzel.className)}>Encore</span>}
         </div>
 
         {/* Description Accordion */}
-        <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-6" : "grid-rows-[0fr] opacity-0")}>
-           <div className="overflow-hidden min-h-0 px-6 py-6 bg-[#F2F0E9] rounded-sm max-w-xl mx-auto shadow-inner">
-              <p className="text-sm leading-8 text-justify opacity-80 font-serif">
+        <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0")}>
+           <div className="overflow-hidden min-h-0 pl-2 border-l-2 border-[var(--line)]/50">
+              <p className="text-sm leading-7 text-justify opacity-80 font-serif">
                 {item.description}
               </p>
            </div>
         </div>
         
         {item.description && (
-           <div className="flex justify-center mt-4 opacity-10 group-hover:opacity-40 transition-opacity">
-              <ChevronDown size={14} className={cn("transition-transform duration-300", isOpen ? "rotate-180" : "")} />
+           <div className="flex justify-start mt-2 opacity-20">
+              <ChevronDown size={12} className={cn("transition-transform duration-300", isOpen ? "rotate-180" : "")} />
            </div>
         )}
       </div>
@@ -532,7 +528,7 @@ function Countdown({ target }: { target: string }) {
     return () => clearInterval(i);
   }, [target]);
   if(!left) return null;
-  return <div className="text-2xl font-mono font-bold tracking-widest text-slate-800">{left}</div>;
+  return <div className="text-2xl font-mono font-bold tracking-widest">{left}</div>;
 }
 
 function ProfileItem({ p }: any) {
@@ -540,7 +536,7 @@ function ProfileItem({ p }: any) {
 
   return (
     <div className="flex flex-col items-center gap-5 text-center group">
-      {/* Portrait Style (No Border, Soft) */}
+      {/* Portrait Style */}
       <div className="w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden shadow-lg grayscale-[0.3] group-hover:grayscale-0 transition-all duration-700">
         {p.image ? (
           <img src={p.image} className="w-full h-full object-cover" alt={p.name} />
