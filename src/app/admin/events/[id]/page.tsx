@@ -531,7 +531,9 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: block.id });
   const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isExpanded ? 50 : 'auto', position: 'relative' as 'relative' };
 
-  useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.id, isExpanded]);
+  // ★★★ 修正箇所: 依存配列から isExpanded を削除 ★★★
+  useEffect(() => { setContent(block.content ?? {}); setIsDirty(false); }, [block.content]);
+
   const handleChange = (nc: any) => { setContent(nc); setIsDirty(true); };
 
   const handleSave = async (e?: any) => {
@@ -660,7 +662,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                                    <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-[#2C2C2C]/30 hover:text-[#B48E55]"><ArrowUp size={14}/></button>
                                    <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-1 text-[#2C2C2C]/30 hover:text-[#B48E55]"><ArrowDown size={14}/></button>
                                 </div>
-                                <div className="flex-1 border-b border-[#2C2C2C]/10"><NoZoomInput className="!bg-transparent !py-2 text-[#2C2C2C] font-bold text-sm !border-none !ring-0 !px-0 font-serif" placeholder="セクション見出し" value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
+                                <div className="flex-1 border-b border-[#2C2C2C]/10"><NoZoomInput className="!bg-transparent !py-2 text-[#2C2C2C] font-bold text-sm !border-none !ring-0 !px-0 font-serif" placeholder="セクション見出し" value={item.title||""} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} /></div>
                                 <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-2 text-[#2C2C2C]/30 hover:text-red-500"><Trash2 size={16}/></button>
                               </div>
                             )}
@@ -671,7 +673,7 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                                    <button onClick={() => {if(i>0){const ni=[...content.items]; [ni[i],ni[i-1]]=[ni[i-1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowUp size={12}/></button>
                                    <button onClick={() => {if(i<content.items.length-1){const ni=[...content.items]; [ni[i],ni[i+1]]=[ni[i+1],ni[i]]; handleChange({...content, items:ni})}}} className="p-0.5 text-yellow-300 hover:text-yellow-600"><ArrowDown size={12}/></button>
                                  </div>
-                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0 !placeholder-yellow-400/50" rows={1} placeholder="メモを入力..." value={item.title} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
+                                 <NoZoomTextArea className="!h-auto !p-0 !bg-transparent text-sm text-yellow-900 !ring-0 !placeholder-yellow-400/50" rows={1} placeholder="メモを入力..." value={item.title||""} onChange={e => { const ni=[...content.items]; ni[i].title=e.target.value; handleChange({...content, items:ni}); }} />
                                  <button onClick={() => { const ni=content.items.filter((_:any,idx:number)=>idx!==i); handleChange({...content, items:ni}); }} className="p-1 text-yellow-400 hover:text-red-500"><X size={14}/></button>
                               </div>
                             )}
@@ -736,8 +738,8 @@ function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
                   <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 cursor-pointer z-10"><Upload size={16} className="text-white opacity-0 group-hover:opacity-100"/><input type="file" className="hidden" onChange={onUpload} /></label>
                </div>
                <div className="flex-1 space-y-2">
-                  <InputField label="名前"><NoZoomInput placeholder="氏名" value={p.name} onChange={e => onChange({...p, name: e.target.value})} /></InputField>
-                  <InputField label="役割"><NoZoomInput placeholder="例: Violin" value={p.role} onChange={e => onChange({...p, role: e.target.value})} /></InputField>
+                  <InputField label="名前"><NoZoomInput placeholder="氏名" value={p.name||""} onChange={e => onChange({...p, name: e.target.value})} /></InputField>
+                  <InputField label="役割"><NoZoomInput placeholder="例: Violin" value={p.role||""} onChange={e => onChange({...p, role: e.target.value})} /></InputField>
                </div>
             </div>
             
@@ -758,7 +760,7 @@ function ProfileEditor({ p, onChange, onDelete, onUpload }: any) {
             </div>
 
             <InputField label="プロフィール本文">
-               <NoZoomTextArea className="h-24 bg-white" placeholder="経歴などを入力..." value={p.bio} onChange={e => onChange({...p, bio: e.target.value})} />
+               <NoZoomTextArea className="h-24 bg-white" placeholder="経歴などを入力..." value={p.bio||""} onChange={e => onChange({...p, bio: e.target.value})} />
             </InputField>
             
             <div className="flex justify-end">
@@ -797,20 +799,20 @@ function ProgramItemEditor({ item, index, total, onChange, onDelete, onMove }: a
             <div className="flex gap-2">
                 <div className="flex-1">
                    <InputField label={isBreak ? "休憩名" : "曲名"}>
-                      <NoZoomInput className="bg-white font-bold" placeholder={isBreak?"休憩":"曲タイトル"} value={item.title} onChange={e => onChange({...item, title:e.target.value})} />
+                      <NoZoomInput className="bg-white font-bold" placeholder={isBreak?"休憩":"曲タイトル"} value={item.title||""} onChange={e => onChange({...item, title:e.target.value})} />
                    </InputField>
                 </div>
             </div>
             
             {isBreak ? (
-                <InputField label="目安時間"><NoZoomInput className="bg-white" placeholder="例: 15分" value={item.duration} onChange={e => onChange({...item, duration:e.target.value})} /></InputField>
+                <InputField label="目安時間"><NoZoomInput className="bg-white" placeholder="例: 15分" value={item.duration||""} onChange={e => onChange({...item, duration:e.target.value})} /></InputField>
             ) : (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                      <InputField label="作曲者"><NoZoomInput className="bg-white" placeholder="Artist" value={item.composer} onChange={e => onChange({...item, composer:e.target.value})} /></InputField>
+                      <InputField label="作曲者"><NoZoomInput className="bg-white" placeholder="Artist" value={item.composer||""} onChange={e => onChange({...item, composer:e.target.value})} /></InputField>
                       <InputField label="演奏者"><NoZoomInput className="bg-white" placeholder="Performer" value={item.performer||""} onChange={e => onChange({...item, performer:e.target.value})} /></InputField>
                   </div>
-                  <InputField label="曲解説"><NoZoomTextArea className="bg-white h-24" placeholder="解説..." value={item.description} onChange={e => onChange({...item, description:e.target.value})} /></InputField>
+                  <InputField label="曲解説"><NoZoomTextArea className="bg-white h-24" placeholder="解説..." value={item.description||""} onChange={e => onChange({...item, description:e.target.value})} /></InputField>
                   
                   <div className="flex justify-between items-center pt-2">
                       <button onClick={() => onChange({...item, isEncore: !item.isEncore})} className={`flex items-center gap-1 px-3 py-1.5 rounded-full border transition-all text-xs font-bold ${item.isEncore ? 'bg-pink-50 border-pink-200 text-pink-600' : 'bg-white border-[#2C2C2C]/10 text-[#2C2C2C]/40 grayscale'}`}>
