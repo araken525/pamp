@@ -218,7 +218,7 @@ export default function AdminDashboard() {
                   <>
                     <span className="relative z-10 flex items-center gap-2">
                       <PenTool size={12} />
-                      招待状を作成する
+                      パンフレットを作成する
                     </span>
                   </>
                 )}
