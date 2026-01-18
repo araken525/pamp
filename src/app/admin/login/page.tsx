@@ -2,17 +2,9 @@
 
 import { useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { 
-  Mail, 
-  Lock, 
-  ArrowRight, 
-  Loader2, 
-  Sparkles,
-  AlertCircle,
-  CheckCircle2
-} from "lucide-react";
+import Link from "next/link";
+import { Loader2, ArrowLeft, Mail, Lock, Sparkles } from "lucide-react";
 import { Cinzel, Zen_Old_Mincho } from 'next/font/google';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -26,7 +18,6 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// --- Supabase Client (Defined locally for safety) ---
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -35,137 +26,117 @@ const supabase = createClient(
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [msg, setMsg] = useState("");
 
-  async function signIn() {
+  async function handleAuth(e: React.FormEvent) {
+    e.preventDefault();
     setLoading(true);
-    setMsg(null);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: pass,
-    });
-    
-    if (error) {
-      setMsg({ type: 'error', text: error.message });
-      setLoading(false);
-    } else {
-      setMsg({ type: 'success', text: "ログイン成功。管理画面へ移動します..." });
-      setTimeout(() => router.push('/admin'), 1000);
-    }
-  }
+    setMsg("");
 
-  async function signUp() {
-    setLoading(true);
-    setMsg(null);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: pass,
-    });
-    
-    if (error) {
-      setMsg({ type: 'error', text: error.message });
+    if (isSignUp) {
+      // Sign Up
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (error) {
+        setMsg(error.message);
+      } else {
+        setMsg("確認メールを送信しました。");
+      }
     } else {
-      setMsg({ type: 'success', text: "確認メールを送信しました。承認後にログインしてください。" });
+      // Sign In
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        setMsg("ログインに失敗しました。");
+      } else {
+        router.push("/admin"); // ログイン成功で管理画面へ
+      }
     }
     setLoading(false);
   }
 
   return (
     <div className={cn(
-      "min-h-screen flex items-center justify-center bg-[#F9F8F2] p-6 text-[#2C2C2C] selection:bg-[#B48E55]/20",
+      "min-h-screen bg-[#F9F8F2] text-[#2C2C2C] selection:bg-[#B48E55]/20 flex items-center justify-center p-6",
       mincho.className
     )}>
-      {/* Paper Texture Overlay */}
+      {/* Paper Texture */}
       <div className="fixed inset-0 pointer-events-none z-0 mix-blend-multiply opacity-[0.04]" 
            style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
 
-      <div className="w-full max-w-md relative z-10">
+      <div className="relative z-10 w-full max-w-md">
         
-        {/* Card Container */}
-        <div className="bg-white/60 backdrop-blur-md rounded-3xl p-8 md:p-12 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-[#2C2C2C]/5">
-          
-          {/* Header */}
-          <div className="text-center mb-10 space-y-2">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#2C2C2C] text-[#B48E55] mb-4 shadow-md">
-               <Sparkles size={20} />
-            </div>
-            <h1 className={cn("text-2xl font-bold tracking-[0.2em]", cinzel.className)}>
-              Admin Login
-            </h1>
-            <p className="text-xs opacity-50 font-sans tracking-wide">PAMP 管理画面へサインイン</p>
-          </div>
+        {/* Back Button */}
+        <Link href="/" className="absolute -top-16 left-0 flex items-center gap-2 text-[#2C2C2C]/40 hover:text-[#2C2C2C] transition-colors">
+           <ArrowLeft size={20}/>
+           <span className="text-xs font-bold tracking-widest font-sans">BACK TO HOME</span>
+        </Link>
 
-          {/* Form */}
-          <div className="space-y-5">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 ml-1">Email</label>
-              <div className="relative group">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-[#2C2C2C]/30 group-focus-within:text-[#B48E55] transition-colors" size={18} />
-                <input
-                  className="w-full h-12 pl-12 pr-4 rounded-xl bg-white border border-[#2C2C2C]/10 outline-none focus:border-[#B48E55] transition-all font-sans text-sm shadow-sm"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+        {/* Card */}
+        <div className="bg-white/80 backdrop-blur-md rounded-[2rem] p-8 shadow-xl border border-[#2C2C2C]/5">
+           <div className="text-center mb-10">
+              <h1 className={cn("text-3xl font-bold mb-2 tracking-[0.1em]", cinzel.className)}>Tenote</h1>
+              <p className="text-xs text-[#2C2C2C]/50 font-sans tracking-widest">DIGITAL PAMPHLET SERVICE</p>
+           </div>
+
+           <form onSubmit={handleAuth} className="space-y-5">
+              <div className="space-y-1">
+                 <label className="text-[10px] font-bold text-[#2C2C2C]/40 tracking-widest ml-1 font-sans">EMAIL</label>
+                 <div className="relative">
+                    <Mail size={16} className="absolute left-4 top-4 text-[#2C2C2C]/30"/>
+                    <input 
+                      type="email" 
+                      required
+                      className="w-full bg-[#F9F8F2] pl-12 pr-4 py-3.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#B48E55]/20 transition-all font-sans border border-[#2C2C2C]/5"
+                      placeholder="name@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                 </div>
               </div>
-            </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 ml-1">Password</label>
-              <div className="relative group">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-[#2C2C2C]/30 group-focus-within:text-[#B48E55] transition-colors" size={18} />
-                <input
-                  className="w-full h-12 pl-12 pr-4 rounded-xl bg-white border border-[#2C2C2C]/10 outline-none focus:border-[#B48E55] transition-all font-sans text-sm shadow-sm"
-                  placeholder="••••••••"
-                  type="password"
-                  value={pass}
-                  onChange={(e) => setPass(e.target.value)}
-                />
+              <div className="space-y-1">
+                 <label className="text-[10px] font-bold text-[#2C2C2C]/40 tracking-widest ml-1 font-sans">PASSWORD</label>
+                 <div className="relative">
+                    <Lock size={16} className="absolute left-4 top-4 text-[#2C2C2C]/30"/>
+                    <input 
+                      type="password" 
+                      required
+                      className="w-full bg-[#F9F8F2] pl-12 pr-4 py-3.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#B48E55]/20 transition-all font-sans border border-[#2C2C2C]/5"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                 </div>
               </div>
-            </div>
 
-            {/* Actions */}
-            <div className="pt-4 space-y-3">
-              <button
-                onClick={signIn}
-                disabled={loading}
-                className="w-full h-12 rounded-full bg-[#2C2C2C] text-[#F9F8F2] text-sm font-bold tracking-widest shadow-lg hover:bg-[#4a4a4a] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-              >
-                {loading ? <Loader2 className="animate-spin" size={18}/> : <>Sign In <ArrowRight size={16}/></>}
-              </button>
-              
+              {msg && <p className="text-center text-xs text-red-500 font-bold">{msg}</p>}
+
               <button 
-                onClick={signUp} 
+                type="submit" 
                 disabled={loading}
-                className="w-full py-2 text-xs font-bold text-[#2C2C2C]/50 hover:text-[#B48E55] transition-colors underline decoration-transparent hover:decoration-[#B48E55]"
+                className="w-full py-4 bg-[#2C2C2C] text-[#F9F8F2] rounded-xl text-sm font-bold tracking-widest shadow-lg hover:bg-[#404040] active:scale-95 transition-all flex items-center justify-center gap-2"
               >
-                アカウントをお持ちでない方は登録 (Sign Up)
+                {loading ? <Loader2 className="animate-spin" size={18}/> : (isSignUp ? "アカウント作成" : "ログイン")}
               </button>
-            </div>
-          </div>
+           </form>
 
-          {/* Feedback Message */}
-          {msg && (
-            <div className={cn(
-              "mt-6 p-4 rounded-xl flex items-start gap-3 text-xs leading-relaxed animate-in slide-in-from-top-2",
-              msg.type === 'error' ? "bg-red-50 text-red-600 border border-red-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-            )}>
-              {msg.type === 'error' ? <AlertCircle size={16} className="shrink-0 mt-0.5"/> : <CheckCircle2 size={16} className="shrink-0 mt-0.5"/>}
-              <p>{msg.text}</p>
-            </div>
-          )}
-
+           <div className="mt-8 text-center">
+              <button 
+                onClick={() => { setIsSignUp(!isSignUp); setMsg(""); }}
+                className="text-xs text-[#2C2C2C]/50 hover:text-[#B48E55] transition-colors font-bold underline underline-offset-4"
+              >
+                {isSignUp ? "すでにアカウントをお持ちの方はこちら" : "新しくアカウントを作成する"}
+              </button>
+           </div>
         </div>
-
-        {/* Back Link */}
-        <div className="text-center mt-8">
-          <Link href="/" className="text-xs font-bold opacity-30 hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-             Top Page
-          </Link>
-        </div>
-
       </div>
     </div>
   );
