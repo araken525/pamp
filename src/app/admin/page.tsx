@@ -5,7 +5,6 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { 
-  Plus, 
   LogOut, 
   Loader2, 
   Edit3, 
@@ -14,7 +13,9 @@ import {
   Calendar, 
   MapPin, 
   LayoutTemplate,
-  Trash2
+  Trash2,
+  Sparkles,
+  PenTool
 } from "lucide-react";
 import { Cinzel, Zen_Old_Mincho } from 'next/font/google';
 import { clsx, type ClassValue } from "clsx";
@@ -91,6 +92,7 @@ export default function AdminDashboard() {
       .single();
 
     if (!error && data) {
+      // 初期データの投入
       await supabase.from("blocks").insert([
         {
           event_id: data.id,
@@ -123,15 +125,15 @@ export default function AdminDashboard() {
 
   // --- 削除機能 ---
   async function deleteEvent(eventId: string) {
-    if (!confirm("本当に削除しますか？\nこの操作は取り消せません。")) return;
+    if (!confirm("本当にこの公演を削除しますか？\n※この操作は取り消せません")) return;
 
-    // UI上ですぐに消す（体感速度向上）
+    // UIをキビキビ動かすために、サーバー完了を待たずにリストから消す
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
 
     const { error } = await supabase.from("events").delete().eq("id", eventId);
     if (error) {
       alert("削除に失敗しました: " + error.message);
-      load(); // 失敗したら元に戻すためにリロード
+      load(); // 失敗したら念のためリロードして元に戻す
     }
   }
 
@@ -148,114 +150,142 @@ export default function AdminDashboard() {
 
   return (
     <div className={cn(
-      "min-h-screen bg-[#F9F8F2] text-[#2C2C2C] selection:bg-[#B48E55]/20 font-sans pb-20",
+      "min-h-screen bg-[#F9F8F2] text-[#2C2C2C] selection:bg-[#B48E55]/20 font-sans pb-32",
       mincho.className
     )}>
-      {/* Paper Texture */}
+      {/* Paper Texture Overlay */}
       <div className="fixed inset-0 pointer-events-none z-0 mix-blend-multiply opacity-[0.04]" 
            style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
 
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-[#F9F8F2]/90 backdrop-blur-md border-b border-[#2C2C2C]/5 px-6 h-20 flex items-center justify-between">
+      <header className="sticky top-0 z-50 bg-[#F9F8F2]/90 backdrop-blur-md border-b border-[#2C2C2C]/5 px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
            <div className="w-8 h-8 bg-[#2C2C2C] text-[#F9F8F2] rounded-full flex items-center justify-center shadow-sm">
-              <LayoutTemplate size={16} />
+              <LayoutTemplate size={14} />
            </div>
-           <span className={cn("text-lg font-bold tracking-widest", cinzel.className)}>Dashboard</span>
+           <span className={cn("text-sm font-bold tracking-[0.1em]", cinzel.className)}>DASHBOARD</span>
         </div>
-        <button onClick={signOut} className="text-xs font-bold opacity-40 hover:opacity-100 flex items-center gap-2 hover:text-red-500 transition-colors">
-           <LogOut size={14} /> <span className="hidden sm:inline">Sign Out</span>
+        <button onClick={signOut} className="w-8 h-8 flex items-center justify-center text-[#2C2C2C]/40 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors" title="Sign Out">
+           <LogOut size={16} />
         </button>
       </header>
 
-      <main className="relative z-10 max-w-5xl mx-auto px-6 py-12">
+      <main className="relative z-10 max-w-5xl mx-auto px-6 py-10">
         
-        {/* Welcome Section */}
-        <section className="mb-12">
-           <h1 className="text-3xl md:text-4xl font-bold mb-2">Welcome back.</h1>
-           <p className="text-sm opacity-60 font-sans">作成したパンフレットの管理・編集</p>
+        {/* Welcome Text */}
+        <section className="mb-10 text-center md:text-left">
+           <h1 className="text-2xl font-bold mb-1">Welcome back.</h1>
+           <p className="text-xs opacity-50 font-sans tracking-wide">あなたの手で、新しい音楽の時間を。</p>
         </section>
 
-        {/* Create New Bar (New Smartphone-First Design) */}
+        {/* --- NEW CREATE SECTION (Invitation Style) --- */}
         <section className="mb-16">
-           <div className="bg-white p-2 md:p-3 rounded-2xl md:rounded-full shadow-sm border border-[#2C2C2C]/5 flex flex-col md:flex-row items-stretch md:items-center max-w-2xl gap-2 md:gap-0 mx-auto md:mx-0">
-              <div className="hidden md:block pl-4 pr-2">
-                 <Plus className="text-[#B48E55]" size={20}/>
+          <div className="relative bg-white rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-[#2C2C2C]/5 p-8 md:p-12 overflow-hidden text-center max-w-2xl mx-auto">
+            
+            {/* Decoration Lines */}
+            <div className="absolute top-3 left-3 w-4 h-4 border-t border-l border-[#B48E55]/30"></div>
+            <div className="absolute top-3 right-3 w-4 h-4 border-t border-r border-[#B48E55]/30"></div>
+            <div className="absolute bottom-3 left-3 w-4 h-4 border-b border-l border-[#B48E55]/30"></div>
+            <div className="absolute bottom-3 right-3 w-4 h-4 border-b border-r border-[#B48E55]/30"></div>
+
+            {/* Label */}
+            <div className={cn("text-[10px] font-bold tracking-[0.3em] text-[#B48E55] mb-6 uppercase flex items-center justify-center gap-2", cinzel.className)}>
+              <Sparkles size={10} />
+              Create New Concert
+              <Sparkles size={10} />
+            </div>
+
+            <form onSubmit={createEvent} className="relative z-10">
+              <div className="mb-8">
+                <input 
+                  autoFocus
+                  className="w-full text-center text-2xl md:text-3xl font-bold bg-transparent border-b border-[#2C2C2C]/10 pb-4 outline-none focus:border-[#B48E55] transition-colors placeholder:text-[#2C2C2C]/10 placeholder:font-normal"
+                  placeholder="ここにタイトルを記す"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  disabled={creating}
+                />
               </div>
-              <form onSubmit={createEvent} className="flex-1 flex flex-col md:flex-row gap-2">
-                 <input 
-                   className="flex-1 bg-transparent border-none md:border-none px-4 outline-none text-base font-sans placeholder:text-[#2C2C2C]/30 h-12"
-                   placeholder="新しい公演タイトルを入力..."
-                   value={newTitle}
-                   onChange={(e) => setNewTitle(e.target.value)}
-                   disabled={creating}
-                 />
-                 <button 
-                   type="submit" 
-                   disabled={creating || !newTitle.trim()}
-                   className="bg-[#2C2C2C] text-white px-6 rounded-xl md:rounded-full text-sm font-bold tracking-wider hover:bg-[#404040] disabled:opacity-50 transition-colors h-12 md:h-10 my-auto flex items-center justify-center gap-2 shadow-sm"
-                 >
-                   {creating ? <Loader2 className="animate-spin" size={16}/> : <><Plus size={16} className="md:hidden"/> 作成</>}
-                 </button>
-              </form>
-           </div>
+
+              <button 
+                type="submit" 
+                disabled={creating || !newTitle.trim()}
+                className="group relative inline-flex items-center justify-center px-8 py-3 bg-[#2C2C2C] text-[#F9F8F2] text-xs font-bold tracking-[0.2em] rounded-full overflow-hidden hover:bg-[#404040] transition-all disabled:opacity-50 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+              >
+                {creating ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : (
+                  <>
+                    <span className="relative z-10 flex items-center gap-2">
+                      <PenTool size={12} />
+                      招待状を作成する
+                    </span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         </section>
 
-        {/* Projects Grid */}
+        {/* --- PROJECTS GRID --- */}
+        <div className="flex items-center gap-4 mb-6 opacity-30">
+          <div className="h-px flex-1 bg-[#2C2C2C]"></div>
+          <span className={cn("text-[10px] tracking-[0.2em]", cinzel.className)}>ARCHIVES</span>
+          <div className="h-px flex-1 bg-[#2C2C2C]"></div>
+        </div>
+
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
            {events.map((e) => (
-             <div key={e.id} className="group bg-white rounded-xl overflow-hidden border border-[#2C2C2C]/5 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
+             <div key={e.id} className="group bg-white rounded-lg overflow-hidden border border-[#2C2C2C]/5 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
                 
-                {/* Delete Button (Absolute Top Right - Added) */}
+                {/* 削除ボタン（ゴミ箱） */}
                 <button 
                   onClick={() => deleteEvent(e.id)}
-                  className="absolute top-3 right-3 z-20 w-8 h-8 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C]/40 hover:text-red-500 hover:bg-red-50 transition-colors shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100"
-                  title="削除"
+                  className="absolute top-2 right-2 z-20 w-8 h-8 bg-white/80 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C]/30 hover:text-red-500 hover:bg-white transition-all opacity-100 md:opacity-0 group-hover:opacity-100 shadow-sm"
+                  title="この公演を削除"
                 >
                    <Trash2 size={14} />
                 </button>
 
-                {/* Card Header (Image Placeholder or Cover) */}
-                <div className="h-36 bg-stone-100 relative overflow-hidden">
+                {/* Card Header */}
+                <div className="h-32 bg-[#F2F0E9] relative overflow-hidden group-hover:opacity-90 transition-opacity">
                    {e.cover_image ? (
-                      <img src={e.cover_image} className="w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700" alt="" />
+                      <img src={e.cover_image} className="w-full h-full object-cover" alt="" />
                    ) : (
-                      <div className="w-full h-full flex items-center justify-center opacity-10 bg-[#F2F0E9]">
-                         <LayoutTemplate size={32} className="opacity-20"/>
+                      <div className="w-full h-full flex items-center justify-center opacity-10">
+                         <LayoutTemplate size={28} />
                       </div>
                    )}
-                   {/* Preview Button (Absolute Bottom Right of Image) */}
-                   <div className="absolute bottom-3 right-3">
-                      <Link href={`/e/${e.slug}`} target="_blank" className="w-8 h-8 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C] hover:bg-[#B48E55] hover:text-white transition-colors shadow-sm" title="プレビュー">
-                         <Eye size={14} />
-                      </Link>
-                   </div>
+                   {/* Preview Button */}
+                   <Link href={`/e/${e.slug}`} target="_blank" className="absolute bottom-2 right-2 w-8 h-8 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C] hover:text-[#B48E55] transition-colors shadow-sm z-10">
+                      <Eye size={14} />
+                   </Link>
                 </div>
 
                 {/* Card Body */}
                 <div className="p-5 flex-1 flex flex-col">
-                   <h3 className="text-lg font-bold mb-2 line-clamp-2 leading-snug group-hover:text-[#B48E55] transition-colors">{e.title}</h3>
+                   <h3 className="text-base font-bold mb-3 line-clamp-2 leading-relaxed group-hover:text-[#B48E55] transition-colors">{e.title}</h3>
                    
-                   <div className="mt-auto space-y-4 pt-2">
+                   <div className="mt-auto space-y-4">
                       {/* Meta Info */}
-                      <div className="flex flex-col gap-1.5 text-[10px] text-[#2C2C2C]/50 font-sans border-b border-[#2C2C2C]/5 pb-3">
-                         <div className="flex items-center gap-1.5">
+                      <div className="flex flex-col gap-1.5 text-[10px] text-[#2C2C2C]/40 font-sans border-b border-[#2C2C2C]/5 pb-3">
+                         <div className="flex items-center gap-2">
                             <Calendar size={10} />
-                            {e.date ? new Date(e.date).toLocaleDateString() : "日付未定"}
+                            {e.date ? new Date(e.date).toLocaleDateString() : "No Date"}
                          </div>
-                         <div className="flex items-center gap-1.5">
+                         <div className="flex items-center gap-2">
                             <MapPin size={10} />
-                            {e.location || "場所未定"}
+                            {e.location || "No Location"}
                          </div>
                       </div>
 
                       {/* Actions */}
-                      <div className="flex gap-2">
-                         <Link href={`/admin/events/${e.id}`} className="flex-1 py-3 bg-[#2C2C2C] text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#404040] transition-colors shadow-sm">
-                            <Edit3 size={12} /> 編集
+                      <div className="grid grid-cols-2 gap-2">
+                         <Link href={`/admin/events/${e.id}`} className="py-2.5 bg-[#F9F8F2] border border-[#2C2C2C]/5 text-[#2C2C2C] rounded text-[10px] font-bold flex items-center justify-center gap-1.5 hover:border-[#B48E55]/50 transition-colors">
+                            <Edit3 size={10} /> 編集画面
                          </Link>
-                         <Link href={`/admin/events/${e.id}/live`} className="flex-1 py-3 border border-[#2C2C2C]/10 text-[#2C2C2C] rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#F2F0E9] transition-colors">
-                            <MonitorPlay size={12} className="text-[#B48E55]" /> 本番
+                         <Link href={`/admin/events/${e.id}/live`} className="py-2.5 bg-[#2C2C2C] text-white rounded text-[10px] font-bold flex items-center justify-center gap-1.5 hover:bg-[#404040] transition-colors shadow-sm">
+                            <MonitorPlay size={10} /> 本番モード
                          </Link>
                       </div>
                    </div>
@@ -265,9 +295,8 @@ export default function AdminDashboard() {
 
            {/* Empty State */}
            {events.length === 0 && !loading && (
-              <div className="col-span-full py-20 text-center border-2 border-dashed border-[#2C2C2C]/10 rounded-2xl bg-white/50">
-                 <p className="text-sm opacity-40 font-sans">作成されたパンフレットはありません</p>
-                 <p className="text-xs opacity-30 mt-2">上のフォームから新しい公演を作成してください</p>
+              <div className="col-span-full py-24 text-center">
+                 <p className="text-sm opacity-20 font-sans mb-2">まだ公演の記録はありません</p>
               </div>
            )}
         </section>
