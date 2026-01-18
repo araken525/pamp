@@ -280,28 +280,44 @@ export default function EventEdit({ params }: Props) {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900" ref={pageRef}>
       
-      {/* HEADER */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 safe-top shadow-sm">
-        <div className="flex justify-between items-center px-4 py-3 h-14">
-           <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
-           <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-full active:scale-95 transition-transform"><Eye size={18} /></Link>
-        </div>
-        
-        {/* NAV TABS (Link to Live) */}
-        <div className="px-4 pb-3">
-           <div className="flex bg-slate-100 p-1 rounded-xl">
-              <button className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-800 shadow-sm transition-all cursor-default">
-                 編集モード
+      {/* HEADER (Redesigned) */}
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 safe-top shadow-sm">
+        <div className="flex justify-between items-center px-4 h-16 max-w-2xl mx-auto">
+           {/* Left: Title */}
+           <h1 className="text-sm font-bold truncate text-slate-800 max-w-[120px] sm:max-w-[200px]">
+             {event.title}
+           </h1>
+           
+           {/* Right: Actions */}
+           <div className="flex items-center gap-2">
+              {/* 1. Distribute (Moved to Header) */}
+              <button 
+                onClick={() => setShowShareModal(true)} 
+                className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold hover:bg-indigo-100 transition-colors active:scale-95"
+              >
+                 <Share2 size={16}/>
+                 <span className="hidden xs:inline">配布</span>
               </button>
-              <Link href={`/admin/events/${id}/live`} className="flex-1 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-600 text-center transition-all flex items-center justify-center gap-1">
-                 本番コックピット <ExternalLink size={12}/>
+
+              {/* 2. Preview */}
+              <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-colors active:scale-95">
+                 <Eye size={18} />
+              </Link>
+
+              {/* 3. Live Cockpit (Fundamentally Redesigned) */}
+              <Link 
+                href={`/admin/events/${id}/live`} 
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white rounded-full text-xs font-bold shadow-md hover:bg-slate-800 active:scale-95 transition-all ring-2 ring-transparent hover:ring-slate-900/20"
+              >
+                 <MonitorPlay size={16} className="text-emerald-400" />
+                 <span>本番モード</span>
               </Link>
            </div>
         </div>
       </header>
 
       {/* TOAST */}
-      <div className={`fixed top-28 inset-x-0 flex justify-center pointer-events-none z-[60] transition-all ${msg ? 'opacity-100 translate-y-2' : 'opacity-0 -translate-y-4'}`}>
+      <div className={`fixed top-20 inset-x-0 flex justify-center pointer-events-none z-[60] transition-all ${msg ? 'opacity-100 translate-y-2' : 'opacity-0 -translate-y-4'}`}>
         {msg && <div className={`px-4 py-2.5 rounded-full shadow-xl font-bold text-sm flex items-center gap-2 backdrop-blur-md ${msg.isError ? 'bg-red-500/90 text-white' : 'bg-slate-800/90 text-white'}`}>{msg.text}</div>}
       </div>
 
@@ -328,15 +344,10 @@ export default function EventEdit({ params }: Props) {
       )}
 
       {/* MAIN CONTENT */}
-      <main className="h-[calc(100dvh-7.5rem)] overflow-y-auto pb-32 p-4 space-y-6">
-            
-        {/* DISTRIBUTE BUTTON */}
-        <button onClick={() => setShowShareModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform">
-            <Share2 size={20}/> パンフレットを配布する
-        </button>
-
+      <main className="h-[calc(100dvh-4rem)] overflow-y-auto pb-32 p-4 space-y-6 max-w-2xl mx-auto">
+        
         {/* SETTINGS CARD 1: COVER & INFO */}
-        <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+        <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100 mt-4">
             <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
                 <Settings size={18} className="text-slate-400"/>
                 <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
@@ -477,7 +488,6 @@ export default function EventEdit({ params }: Props) {
 }
 
 // --- SUB COMPONENTS (AddMenuBtn, BlockCard, ProfileEditor, ProgramItemEditor) ---
-// Note: These helper components are identical to the previous version but essential for the editor.
 
 function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
   return (
