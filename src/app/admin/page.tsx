@@ -50,16 +50,19 @@ export default function AdminDashboard() {
 
   async function load() {
     setLoading(true);
+    // 1. ログインユーザー情報を取得
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) {
-      router.push("/admin/login");
+      router.push("/admin/login"); // ログインしていなければ飛ばす
       return;
     }
     setUser(u.user);
 
+    // 2. 「自分のID (u.user.id)」と一致するデータだけを取得
     const { data } = await supabase
       .from("events")
       .select("*")
+      .eq("owner_id", u.user.id) // ★★★ ここが最重要！この1行で他人には見えなくなります ★★★
       .order("created_at", { ascending: false });
 
     setEvents(data ?? []);
@@ -127,13 +130,12 @@ export default function AdminDashboard() {
   async function deleteEvent(eventId: string) {
     if (!confirm("本当にこの公演を削除しますか？\n※この操作は取り消せません")) return;
 
-    // UIをキビキビ動かすために、サーバー完了を待たずにリストから消す
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
 
     const { error } = await supabase.from("events").delete().eq("id", eventId);
     if (error) {
       alert("削除に失敗しました: " + error.message);
-      load(); // 失敗したら念のためリロードして元に戻す
+      load();
     }
   }
 
@@ -182,13 +184,11 @@ export default function AdminDashboard() {
         <section className="mb-16">
           <div className="relative bg-white rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-[#2C2C2C]/5 p-8 md:p-12 overflow-hidden text-center max-w-2xl mx-auto">
             
-            {/* Decoration Lines */}
             <div className="absolute top-3 left-3 w-4 h-4 border-t border-l border-[#B48E55]/30"></div>
             <div className="absolute top-3 right-3 w-4 h-4 border-t border-r border-[#B48E55]/30"></div>
             <div className="absolute bottom-3 left-3 w-4 h-4 border-b border-l border-[#B48E55]/30"></div>
             <div className="absolute bottom-3 right-3 w-4 h-4 border-b border-r border-[#B48E55]/30"></div>
 
-            {/* Label */}
             <div className={cn("text-[10px] font-bold tracking-[0.3em] text-[#B48E55] mb-6 uppercase flex items-center justify-center gap-2", cinzel.className)}>
               <Sparkles size={10} />
               Create New Concert
@@ -218,7 +218,7 @@ export default function AdminDashboard() {
                   <>
                     <span className="relative z-10 flex items-center gap-2">
                       <PenTool size={12} />
-                      パンフレットを作成する
+                      招待状を作成する
                     </span>
                   </>
                 )}
@@ -238,7 +238,6 @@ export default function AdminDashboard() {
            {events.map((e) => (
              <div key={e.id} className="group bg-white rounded-lg overflow-hidden border border-[#2C2C2C]/5 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
                 
-                {/* 削除ボタン（ゴミ箱） */}
                 <button 
                   onClick={() => deleteEvent(e.id)}
                   className="absolute top-2 right-2 z-20 w-8 h-8 bg-white/80 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C]/30 hover:text-red-500 hover:bg-white transition-all opacity-100 md:opacity-0 group-hover:opacity-100 shadow-sm"
@@ -247,7 +246,6 @@ export default function AdminDashboard() {
                    <Trash2 size={14} />
                 </button>
 
-                {/* Card Header */}
                 <div className="h-32 bg-[#F2F0E9] relative overflow-hidden group-hover:opacity-90 transition-opacity">
                    {e.cover_image ? (
                       <img src={e.cover_image} className="w-full h-full object-cover" alt="" />
@@ -256,18 +254,15 @@ export default function AdminDashboard() {
                          <LayoutTemplate size={28} />
                       </div>
                    )}
-                   {/* Preview Button */}
                    <Link href={`/e/${e.slug}`} target="_blank" className="absolute bottom-2 right-2 w-8 h-8 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C] hover:text-[#B48E55] transition-colors shadow-sm z-10">
                       <Eye size={14} />
                    </Link>
                 </div>
 
-                {/* Card Body */}
                 <div className="p-5 flex-1 flex flex-col">
                    <h3 className="text-base font-bold mb-3 line-clamp-2 leading-relaxed group-hover:text-[#B48E55] transition-colors">{e.title}</h3>
                    
                    <div className="mt-auto space-y-4">
-                      {/* Meta Info */}
                       <div className="flex flex-col gap-1.5 text-[10px] text-[#2C2C2C]/40 font-sans border-b border-[#2C2C2C]/5 pb-3">
                          <div className="flex items-center gap-2">
                             <Calendar size={10} />
@@ -279,7 +274,6 @@ export default function AdminDashboard() {
                          </div>
                       </div>
 
-                      {/* Actions */}
                       <div className="grid grid-cols-2 gap-2">
                          <Link href={`/admin/events/${e.id}`} className="py-2.5 bg-[#F9F8F2] border border-[#2C2C2C]/5 text-[#2C2C2C] rounded text-[10px] font-bold flex items-center justify-center gap-1.5 hover:border-[#B48E55]/50 transition-colors">
                             <Edit3 size={10} /> 編集画面
@@ -293,7 +287,6 @@ export default function AdminDashboard() {
              </div>
            ))}
 
-           {/* Empty State */}
            {events.length === 0 && !loading && (
               <div className="col-span-full py-24 text-center">
                  <p className="text-sm opacity-20 font-sans mb-2">まだ公演の記録はありません</p>
