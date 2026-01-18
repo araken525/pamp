@@ -244,7 +244,7 @@ function LoadingScreen() {
   );
 }
 
-// === 1. HERO REFRESH: Magazine Cover Style ===
+// === 1. HERO REFRESH: Centered Elegant Style ===
 function Hero({ event, liveMode }: any) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
@@ -254,68 +254,59 @@ function Hero({ event, liveMode }: any) {
   return (
     <motion.header 
       ref={ref}
-      className="relative h-[90vh] w-full overflow-hidden flex flex-col justify-end text-left px-6 pb-20 mb-24"
+      className="relative h-[90vh] w-full overflow-hidden flex flex-col justify-end items-center text-center px-6 pb-24 mb-24"
     >
       {/* Background */}
       <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
         {event.cover_image ? (
-          <img src={event.cover_image} className="w-full h-full object-cover" alt="cover" />
+          <img src={event.cover_image} className="w-full h-full object-cover brightness-[0.85]" alt="cover" />
         ) : (
-          <div className="w-full h-full bg-stone-200" />
+          <div className="w-full h-full bg-stone-800" />
         )}
-        {/* Strong Gradient for text visibility */}
+        {/* Gradient Overlay for Text Readability */}
         <div className={cn(
           "absolute inset-0 bg-gradient-to-t via-transparent",
           liveMode 
-            ? "from-[var(--live-bg)] via-[var(--live-bg)]/20 to-black/30" 
-            : "from-[#F9F8F2] via-[#F9F8F2]/10 to-black/10"
+            ? "from-[var(--live-bg)] via-[var(--live-bg)]/40 to-black/40" 
+            : "from-black/60 via-black/20 to-black/30"
         )} />
       </motion.div>
 
-      {/* Content: Editorial Layout */}
-      <div className="relative z-10 max-w-4xl w-full mx-auto">
+      {/* Content: Centered & Elegant */}
+      <div className="relative z-10 max-w-4xl w-full mx-auto text-white">
         <motion.div 
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="space-y-6"
+          className="flex flex-col items-center space-y-8"
         >
           {/* Label */}
-          <div className="flex items-center gap-4">
-             <div className={cn("h-px w-12", liveMode ? "bg-white" : "bg-black")}></div>
-             <span className={cn("text-xs tracking-[0.3em] uppercase font-bold", cinzel.className, liveMode ? "text-white" : "text-black")}>
+          <div className="flex flex-col items-center gap-3">
+             <span className={cn("text-xs tracking-[0.3em] uppercase font-bold text-white/90", cinzel.className)}>
                Digital Pamphlet
              </span>
+             <div className="h-px w-12 bg-white/80"></div>
           </div>
 
           {/* Title: Big, Bold, Elegant */}
           <h1 className={cn(
-            "text-5xl md:text-8xl font-bold leading-[1.1] tracking-tight", 
-            mincho.className,
-            liveMode ? "text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]" : "text-black drop-shadow-sm"
+            "text-5xl md:text-7xl font-bold leading-[1.1] tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]", 
+            mincho.className
           )}>
             {event.title}
           </h1>
 
-          {/* Info Block: Date & Location */}
-          <div className={cn(
-             "flex flex-col md:flex-row gap-6 md:gap-12 pt-4 border-t max-w-md",
-             liveMode ? "border-white/30 text-white/90" : "border-black/20 text-black/80"
-          )}>
+          {/* Info Block: Date & Location (Centered) */}
+          <div className="flex flex-col items-center gap-4 text-white/90 pt-4">
              {event.date && (
-               <div className="flex flex-col">
-                  <span className="text-[10px] uppercase tracking-widest opacity-60 mb-1">Date & Time</span>
-                  <div className={cn("text-lg font-medium", cormorant.className)}>
-                     {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })}
-                     <span className="ml-2 text-sm">{new Date(event.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-               </div>
+                <div className={cn("text-lg font-medium tracking-wide", cormorant.className)}>
+                   {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                   <span className="mx-2">/</span>
+                   <span>{new Date(event.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
              )}
              {event.location && (
-               <div className="flex flex-col">
-                  <span className="text-[10px] uppercase tracking-widest opacity-60 mb-1">Location</span>
-                  <div className="text-lg font-medium font-serif flex items-center gap-1">
-                     <MapPin size={16} className="opacity-70"/> {event.location}
-                  </div>
-               </div>
+                <div className="text-base font-serif flex items-center justify-center gap-2 tracking-wider uppercase opacity-90">
+                   <MapPin size={14} className="opacity-80"/> <span>{event.location}</span>
+                </div>
              )}
           </div>
         </motion.div>
