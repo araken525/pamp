@@ -96,6 +96,7 @@ export default function EventViewer({ params }: Props) {
         const { data: b } = await supabase.from("blocks").select("*").eq("event_id", e.id).order("sort_order", { ascending: true });
         setBlocks(b ?? []);
         
+        // 休憩時間のチェック
         let foundBreak = null;
         b?.forEach((block: any) => {
            if(block.type === 'program') {
@@ -111,7 +112,7 @@ export default function EventViewer({ params }: Props) {
       await fetchBlocks();
       setLoading(false);
 
-      // --- Realtime Connection ---
+      // --- Realtime Connection (Updates screen instantly) ---
       channel = supabase.channel("viewer-realtime")
         .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `id=eq.${e.id}` }, (payload: any) => {
             const ne = payload.new;
@@ -203,18 +204,20 @@ function LoadingScreen() {
   );
 }
 
-// === 1. HERO: Smart Title Sizing Update ===
+// === HERO: Smart Title Sizing for Mobile ===
 function Hero({ event }: any) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "40%"]);
   const opacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
 
-  // ★ タイトルの長さ判定ロジック
+  // ★ タイトルの長さ判定ロジック（文字数に応じてクラスを切り替え）
   const titleLen = event.title?.length || 0;
-  let fontSize = '11cqi'; // デフォルト（特大）
-  if (titleLen > 10) fontSize = '8cqi'; // 少し小さく
-  if (titleLen > 20) fontSize = '5cqi'; // 長い場合はさらに小さく
+  
+  // 文字数が多いほど、フォントサイズを小さくする
+  let fontSizeClass = "text-4xl md:text-6xl"; // デフォルト（10文字以下）
+  if (titleLen > 10) fontSizeClass = "text-2xl md:text-5xl"; // 中くらい（11〜20文字）
+  if (titleLen > 25) fontSizeClass = "text-xl md:text-4xl"; // 長文（21文字以上）
 
   return (
     <motion.header 
@@ -227,17 +230,14 @@ function Hero({ event }: any) {
         ) : (
           <div className="w-full h-full bg-stone-200" />
         )}
-        {/* White Fog Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg)]/60 to-[var(--bg)]" />
       </motion.div>
 
-      {/* Content */}
       <div className="relative z-10 max-w-4xl w-full mx-auto text-[var(--text)]">
         <motion.div 
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
           className="flex flex-col items-center space-y-10"
         >
-          {/* Label */}
           <div className="flex flex-col items-center gap-3 opacity-60">
              <span className={cn("text-xs tracking-[0.3em] uppercase font-bold", cinzel.className)}>
                Digital Pamphlet
@@ -245,23 +245,20 @@ function Hero({ event }: any) {
              <div className="h-px w-8 bg-current"></div>
           </div>
 
-          {/* Title: Smart Sizing & Balance */}
-          <div className="w-full" style={{ containerType: 'inline-size' }}>
+          {/* ★ 修正箇所：タイトル表示エリア */}
+          <div className="w-full px-2">
              <h1 className={cn(
-               "font-bold leading-none tracking-tight text-slate-900 drop-shadow-sm text-center mx-auto", 
-               mincho.className
+               "font-bold leading-tight tracking-tight text-slate-900 drop-shadow-sm text-center mx-auto break-words", 
+               mincho.className,
+               fontSizeClass // 計算したサイズクラスを適用
              )} style={{ 
-               fontSize: fontSize, 
-               textWrap: 'balance',     // バランスの良い位置で改行
-               lineHeight: 1.2,         // 複数行になった時の行間
-               wordBreak: 'keep-all',   // 単語の途中での改行を防ぐ
-               maxWidth: '100%'
+               textWrap: 'balance', // 改行位置を自動調整
+               wordBreak: 'auto-phrase'
              }}>
                {event.title}
              </h1>
           </div>
 
-          {/* Info Block */}
           <div className="flex flex-col items-center gap-6 pt-6 border-t border-black/10 w-full max-w-lg">
              <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-10">
                 {event.date && (
@@ -318,14 +315,12 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
                <p className={cn("text-[10px] opacity-60 uppercase tracking-widest mt-1", cinzel.className)}>{content.role}</p>
                <div className="w-8 h-px bg-[var(--accent)] mt-4 opacity-50"></div>
              </div>
-             
              <div className="prose prose-stone prose-p:font-serif prose-p:text-[var(--text)] prose-p:opacity-90 prose-p:leading-loose text-justify">
                 <p className="whitespace-pre-wrap">{content.text}</p>
              </div>
           </div>
         </Wrapper>
       );
-
     case "program":
       return (
         <Wrapper>
@@ -337,7 +332,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
           </div>
         </Wrapper>
       );
-
     case "profile":
       return (
         <Wrapper>
@@ -349,26 +343,20 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
           </div>
         </Wrapper>
       );
-
     case "gallery":
       return (
         <Wrapper>
           <div className="relative py-12">
-             {/* Watermark Background */}
              <div className={cn(
                "absolute top-0 left-1/2 -translate-x-1/2 text-[15vw] font-bold opacity-[0.03] select-none pointer-events-none whitespace-nowrap z-0",
                cinzel.className
              )}>
                GALLERY
              </div>
-             
-             {/* Header */}
              <div className="text-center mb-10 relative z-10">
                 <h3 className={cn("text-lg font-bold tracking-widest uppercase mb-2 text-[var(--accent)]")}>{content.title || "Memories"}</h3>
                 {content.caption && <p className="text-xs opacity-60 font-serif max-w-md mx-auto leading-relaxed">{content.caption}</p>}
              </div>
-
-             {/* Grid Layout */}
              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 relative z-10">
                 {(content.images || []).map((url: string, i: number) => (
                    <div key={i} className="aspect-square relative overflow-hidden group bg-stone-100 shadow-sm">
@@ -379,7 +367,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
           </div>
         </Wrapper>
       );
-
     case "free":
       return (
         <Wrapper>
@@ -395,7 +382,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
           </div>
         </Wrapper>
       );
-
     default: return null;
   }
 }
@@ -435,7 +421,6 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
       </div>
     );
   }
-
   if (item.type === "memo") {
     return (
       <div className="pl-4 py-2 opacity-50">
@@ -443,7 +428,6 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
       </div>
     );
   }
-
   if (isBreak) {
     return (
       <div className={cn(
@@ -454,7 +438,6 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
            "absolute -left-[5px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 bg-[var(--bg)] z-10",
            active ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--line)]"
         )}></div>
-        
         <div className="flex items-center gap-3">
            <span className="text-xs font-bold tracking-[0.2em] uppercase">休 憩</span>
            {active && item.timerEnd ? (
@@ -466,29 +449,19 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
       </div>
     );
   }
-
-  // --- Song Item (Vertical Line Style) ---
   return (
     <div className="relative group pl-4">
-      {/* Timeline Node */}
       <div className={cn(
          "absolute -left-[5px] top-6 w-2.5 h-2.5 rounded-full border-2 transition-all duration-500 z-10 bg-[var(--bg)]",
          active ? "border-[var(--accent)] bg-[var(--accent)] scale-125" : "border-[var(--line)]"
       )}></div>
-
-      <div 
-        className="cursor-pointer"
-        onClick={() => item.description && setIsOpen(!isOpen)}
-      >
+      <div className="cursor-pointer" onClick={() => item.description && setIsOpen(!isOpen)}>
         <div className="flex flex-col gap-1">
-           {/* Active Indicator: "演奏中" */}
            {active && (
               <span className="text-[10px] font-bold tracking-widest flex items-center gap-1.5 mb-1 animate-pulse text-[var(--accent)]">
                 <Sparkles size={10}/> 演奏中
               </span>
            )}
-
-           {/* Row 1: Title & Composer */}
            <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1 md:gap-8">
               <h3 className={cn(
                 "text-xl md:text-2xl font-bold leading-snug font-serif transition-colors duration-500", 
@@ -498,18 +471,13 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
               </h3>
               <span className={cn("text-sm opacity-60 italic shrink-0", cormorant.className)}>{item.composer}</span>
            </div>
-           
-           {/* Row 2: Performer */}
            {item.performer && (
               <div className="text-xs font-serif opacity-70 mt-1">
                 {item.performer}
               </div>
            )}
-           
            {item.isEncore && <span className={cn("text-[9px] mt-1 inline-block opacity-50 uppercase tracking-widest", cinzel.className)}>Encore</span>}
         </div>
-
-        {/* Description Accordion */}
         <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0")}>
            <div className="overflow-hidden min-h-0 pl-2 border-l-2 border-[var(--line)]/50">
               <p className="text-sm leading-7 text-justify opacity-80 font-serif">
@@ -517,7 +485,6 @@ function ProgramItem({ item, index, encoreRevealed }: any) {
               </p>
            </div>
         </div>
-        
         {item.description && (
            <div className="flex justify-start mt-2 opacity-20">
               <ChevronDown size={12} className={cn("transition-transform duration-300", isOpen ? "rotate-180" : "")} />
@@ -544,10 +511,8 @@ function Countdown({ target }: { target: string }) {
 
 function ProfileItem({ p }: any) {
   const [isOpen, setIsOpen] = useState(false);
-
   return (
     <div className="flex flex-col items-center gap-5 text-center group">
-      {/* Portrait Style */}
       <div className="w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden shadow-lg grayscale-[0.3] group-hover:grayscale-0 transition-all duration-700">
         {p.image ? (
           <img src={p.image} className="w-full h-full object-cover" alt={p.name} />
@@ -555,18 +520,15 @@ function ProfileItem({ p }: any) {
           <div className="w-full h-full flex items-center justify-center bg-stone-200 opacity-20"><User size={32}/></div>
         )}
       </div>
-      
       <div className="space-y-2">
         <h3 className="text-xl font-bold font-serif tracking-widest">{p.name}</h3>
         <p className={cn("text-[10px] tracking-[0.2em] uppercase opacity-50", cinzel.className)}>{p.role}</p>
-        
         <div className="flex justify-center gap-4 pt-1 opacity-40 group-hover:opacity-80 transition-opacity">
            {p.sns?.twitter && <a href={p.sns.twitter} target="_blank" rel="noopener noreferrer"><Twitter size={14}/></a>}
            {p.sns?.instagram && <a href={p.sns.instagram} target="_blank" rel="noopener noreferrer"><Instagram size={14}/></a>}
            {p.sns?.website && <a href={p.sns.website} target="_blank" rel="noopener noreferrer"><Globe size={14}/></a>}
         </div>
       </div>
-
       <div className="w-full max-w-sm">
         <div className={cn("overflow-hidden transition-all duration-500", isOpen ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0")}>
            <p className="text-sm leading-7 text-justify opacity-80 font-serif pt-4 pb-2 border-t border-[var(--line)] mt-4">
