@@ -139,7 +139,7 @@ export default function AdminDashboard() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    router.push("/login");
+    router.push("/admin/login");
   }
 
   if (loading) return (
