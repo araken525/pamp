@@ -62,7 +62,7 @@ export default function LandingPage() {
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <Link href="/login" className="w-full sm:w-auto px-8 py-4 bg-[#2C2C2C] text-[#F9F8F2] rounded-full text-sm font-bold tracking-widest shadow-lg hover:bg-[#4a4a4a] transition-all flex items-center justify-center gap-2 group">
+            <Link href="/admin/login" className="w-full sm:w-auto px-8 py-4 bg-[#2C2C2C] text-[#F9F8F2] rounded-full text-sm font-bold tracking-widest shadow-lg hover:bg-[#4a4a4a] transition-all flex items-center justify-center gap-2 group">
               <Sparkles size={16} className="text-[#B48E55]"/>
               <span>はじめる</span>
               <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform"/>
