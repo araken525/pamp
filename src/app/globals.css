@@ -1,27 +1,29 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-:root {
-  /* アプリ全体のテーマカラー（クリーム色の紙） */
-  --background: #F9F8F2;
-  --foreground: #2C2C2C;
+/* VS Codeでここに波線（警告）が出ても、
+  Tailwind v4の最新記法なので「無視」して大丈夫です！
+  正常に動きます。
+*/
+
+@theme {
+  --font-mincho: "Zen Old Mincho", serif;
 }
 
-/* ▼▼▼ ここが重要です ▼▼▼ */
+/* ▼▼▼ ここから下が修正ポイント ▼▼▼ */
+
 html,
 body {
-  /* bodyの高さを画面いっぱいに確保 */
+  /* height: 100% を指定することで
+    キーボードが出たときのレイアウト崩れを防ぐ土台を作ります。
+    ※ overflow: hidden は削除したのでスクロールもできます！
+  */
   height: 100%;
-  /* スクロール操作をスムーズにし、意図しないズームを防ぐ */
-  touch-action: manipulation;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  /* デフォルトフォントを明朝体にして世界観を統一 */
-  font-family: "Zen Old Mincho", serif;
+  background-color: #F9F8F2; /* クリーム色 */
+  color: #2C2C2C;
+  font-family: var(--font-mincho), serif; /* 明朝体を適用 */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
