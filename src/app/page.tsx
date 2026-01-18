@@ -18,7 +18,7 @@ import { twMerge } from "tailwind-merge";
 const cinzel = Cinzel({ subsets: ["latin"], weight: ["400", "700"] });
 const mincho = Zen_Old_Mincho({ subsets: ["latin"], weight: ["400", "700", "900"] });
 
-// --- Utils (Defined Locally to avoid import errors) ---
+// --- Utils ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -44,7 +44,7 @@ export default function LandingPage() {
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#2C2C2C]/10 bg-white/50 backdrop-blur-sm">
             <span className={cn("text-[10px] tracking-[0.2em] font-bold uppercase opacity-60", cinzel.className)}>
-              PAMP : Prototype
+              Tenote
             </span>
           </div>
 
@@ -56,7 +56,8 @@ export default function LandingPage() {
           {/* Subtitle */}
           <p className="text-sm md:text-base leading-8 opacity-70 max-w-xl mx-auto font-sans">
             演奏会のプログラムを、もっと自由に、もっと美しく。<br/>
-            URLひとつで届ける、次世代のデジタルパンフレット作成サービス。
+            スマホで「めくる」新しい体験。<br/>
+            デジタルパンフレットサービス <strong>Tenote（テノート）</strong>
           </p>
 
           {/* CTA Buttons */}
@@ -77,7 +78,7 @@ export default function LandingPage() {
       <section className="relative z-10 py-20 px-6 bg-white/40 border-t border-[#2C2C2C]/5">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className={cn("text-2xl font-bold tracking-[0.2em] mb-2", cinzel.className)}>Why PAMP?</h2>
+            <h2 className={cn("text-2xl font-bold tracking-[0.2em] mb-2", cinzel.className)}>Why Tenote?</h2>
             <p className="text-xs opacity-50 font-sans">選ばれる3つの理由</p>
           </div>
 
@@ -166,9 +167,9 @@ export default function LandingPage() {
       {/* --- FOOTER --- */}
       <footer className="relative z-10 py-12 text-center border-t border-[#2C2C2C]/5">
         <p className={cn("text-xs font-bold tracking-[0.2em] opacity-30", cinzel.className)}>
-          PAMP - Digital Pamphlet Service
+          Tenote - Digital Pamphlet Service
         </p>
-        <p className="text-[10px] opacity-30 mt-2 font-sans">© 2026 PAMP Prototype. All Rights Reserved.</p>
+        <p className="text-[10px] opacity-30 mt-2 font-sans">© 2026 Tenote. All Rights Reserved.</p>
       </footer>
     </div>
   );
