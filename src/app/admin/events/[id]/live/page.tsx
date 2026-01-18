@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   Music,
   Mic2,
-  CheckCircle2,
   Clock,
   Radio
 } from "lucide-react";
@@ -119,7 +118,7 @@ export default function EventLiveCockpit({ params }: Props) {
         }
     }
 
-    if (!targetBlockId) return alert("休憩項目が見つかりません");
+    if (!targetBlockId) return alert("休憩項目が見つかりません。編集画面で追加してください。");
 
     const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
     const target = blocks[targetIndex];
@@ -189,19 +188,19 @@ export default function EventLiveCockpit({ params }: Props) {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
                   </span>
-                  <span className="text-[10px] font-black text-green-600 tracking-wider">ON AIR</span>
+                  <span className="text-[10px] font-black text-green-600 tracking-wider">公開中</span>
                </>
             ) : (
                <>
                   <div className="w-2.5 h-2.5 rounded-full bg-slate-400"></div>
-                  <span className="text-[10px] font-black text-slate-500 tracking-wider">STANDBY</span>
+                  <span className="text-[10px] font-black text-slate-500 tracking-wider">待機中</span>
                </>
             )}
          </div>
       </header>
 
       {/* SCROLL AREA */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-40">
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-44">
          
          {/* 1. Global Controls (Encore) */}
          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between">
@@ -223,7 +222,7 @@ export default function EventLiveCockpit({ params }: Props) {
          <div className="space-y-3">
             <div className="flex items-center gap-2 px-2">
                <Radio size={14} className="text-slate-400"/>
-               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Running Order</h2>
+               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">進行リスト</h2>
             </div>
             
             {blocks.filter(b => b.type === "program").map(block => (
@@ -267,10 +266,10 @@ export default function EventLiveCockpit({ params }: Props) {
                            </div>
 
                            {isActive && !isBreak && (
-                              <div className="shrink-0 bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm animate-pulse">NOW</div>
+                              <div className="shrink-0 bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm animate-pulse">演奏中</div>
                            )}
                            {isActive && isBreak && (
-                              <div className="shrink-0 bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm animate-pulse">BREAK</div>
+                              <div className="shrink-0 bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm animate-pulse">休憩中</div>
                            )}
                         </div>
                      )
@@ -285,13 +284,13 @@ export default function EventLiveCockpit({ params }: Props) {
          {activeInfo?.item.type === "break" ? (
             // ACTIVE BREAK MODE
             <div className="flex items-center justify-between gap-4 max-w-xl mx-auto">
-               <div className="flex-1 bg-orange-50 rounded-2xl p-3 border border-orange-100 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500">
-                     <Coffee size={20}/>
+               <div className="flex-1 bg-orange-50 rounded-2xl p-4 border border-orange-200 flex items-center gap-5 shadow-inner">
+                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-orange-500 shadow-sm shrink-0">
+                     <Coffee size={24} className="animate-bounce"/>
                   </div>
                   <div>
-                     <div className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">休憩中</div>
-                     <div className="text-3xl font-black text-slate-800 tabular-nums leading-none">
+                     <div className="text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-0.5">現在 休憩中</div>
+                     <div className="text-4xl font-black text-slate-800 tabular-nums leading-none tracking-tight">
                         {(() => {
                            if (!activeInfo.item.timerEnd) return "--:--";
                            const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
@@ -303,23 +302,23 @@ export default function EventLiveCockpit({ params }: Props) {
                      </div>
                   </div>
                </div>
-               <button onClick={stopBreak} className="h-16 w-20 rounded-2xl bg-red-500 text-white flex flex-col items-center justify-center gap-1 shadow-lg active:scale-95 transition-transform hover:bg-red-600">
-                  <StopCircle size={24} />
-                  <span className="text-[10px] font-bold">終了</span>
+               <button onClick={stopBreak} className="h-20 w-24 rounded-2xl bg-red-500 text-white flex flex-col items-center justify-center gap-1 shadow-lg active:scale-95 transition-transform hover:bg-red-600 border-b-4 border-red-700">
+                  <StopCircle size={28} />
+                  <span className="text-xs font-bold">終了する</span>
                </button>
             </div>
          ) : (
             // IDLE MODE
             <div className="flex flex-col gap-2 max-w-xl mx-auto">
                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
-                  <span>Break Timer</span>
-                  <span>Custom</span>
+                  <span>休憩タイマー</span>
+                  <span>手動入力</span>
                </div>
                <div className="flex items-stretch gap-2 h-14">
                   <div className="flex-1 grid grid-cols-3 gap-2">
                      {[10, 15, 20].map(min => (
                         <button key={min} onClick={() => startBreak(min)} className="bg-slate-50 border border-slate-200 text-slate-600 rounded-xl font-bold text-lg hover:bg-slate-100 hover:border-slate-300 active:scale-95 transition-all">
-                           {min}
+                           {min}分
                         </button>
                      ))}
                   </div>
