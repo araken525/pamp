@@ -111,6 +111,7 @@ export default function EventViewer({ params }: Props) {
       await fetchBlocks();
       setLoading(false);
 
+      // --- Realtime Connection ---
       channel = supabase.channel("viewer-realtime")
         .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `id=eq.${e.id}` }, (payload: any) => {
             const ne = payload.new;
@@ -202,12 +203,18 @@ function LoadingScreen() {
   );
 }
 
-// === 1. HERO: White Fog Gradient (Latest) ===
+// === 1. HERO: Smart Title Sizing Update ===
 function Hero({ event }: any) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "40%"]);
   const opacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
+
+  // ★ タイトルの長さ判定ロジック
+  const titleLen = event.title?.length || 0;
+  let fontSize = '11cqi'; // デフォルト（特大）
+  if (titleLen > 10) fontSize = '8cqi'; // 少し小さく
+  if (titleLen > 20) fontSize = '5cqi'; // 長い場合はさらに小さく
 
   return (
     <motion.header 
@@ -220,11 +227,11 @@ function Hero({ event }: any) {
         ) : (
           <div className="w-full h-full bg-stone-200" />
         )}
-        {/* White Fog Gradient: Transparent -> White/Paper Color */}
+        {/* White Fog Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg)]/60 to-[var(--bg)]" />
       </motion.div>
 
-      {/* Content: Ink Black Text */}
+      {/* Content */}
       <div className="relative z-10 max-w-4xl w-full mx-auto text-[var(--text)]">
         <motion.div 
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
@@ -238,12 +245,18 @@ function Hero({ event }: any) {
              <div className="h-px w-8 bg-current"></div>
           </div>
 
-          {/* Title: 1-Line Logic */}
+          {/* Title: Smart Sizing & Balance */}
           <div className="w-full" style={{ containerType: 'inline-size' }}>
              <h1 className={cn(
-               "font-bold leading-none tracking-tight text-slate-900 drop-shadow-sm whitespace-nowrap text-center", 
+               "font-bold leading-none tracking-tight text-slate-900 drop-shadow-sm text-center mx-auto", 
                mincho.className
-             )} style={{ fontSize: '11cqi' }}>
+             )} style={{ 
+               fontSize: fontSize, 
+               textWrap: 'balance',     // バランスの良い位置で改行
+               lineHeight: 1.2,         // 複数行になった時の行間
+               wordBreak: 'keep-all',   // 単語の途中での改行を防ぐ
+               maxWidth: '100%'
+             }}>
                {event.title}
              </h1>
           </div>
@@ -313,7 +326,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
         </Wrapper>
       );
 
-    // === 2. PROGRAM: Reverted to Vertical Line Style (Turn 9) ===
     case "program":
       return (
         <Wrapper>
@@ -338,7 +350,6 @@ function BlockRenderer({ block, index, encoreRevealed }: any) {
         </Wrapper>
       );
 
-    // === 3. GALLERY: Reverted to Watermark Style (Turn 9) ===
     case "gallery":
       return (
         <Wrapper>
