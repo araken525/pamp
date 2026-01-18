@@ -244,7 +244,7 @@ function LoadingScreen() {
   );
 }
 
-// === 1. HERO REFRESH: Centered Elegant Style ===
+// === 1. HERO: White Text & Natural Bottom Gradient ===
 function Hero({ event, liveMode }: any) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
@@ -259,20 +259,21 @@ function Hero({ event, liveMode }: any) {
       {/* Background */}
       <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
         {event.cover_image ? (
-          <img src={event.cover_image} className="w-full h-full object-cover brightness-[0.85]" alt="cover" />
+          <img src={event.cover_image} className="w-full h-full object-cover brightness-[0.8]" alt="cover" />
         ) : (
           <div className="w-full h-full bg-stone-800" />
         )}
-        {/* Gradient Overlay for Text Readability */}
+        
+        {/* Natural Blend Gradient (Paper Color at Bottom) */}
         <div className={cn(
           "absolute inset-0 bg-gradient-to-t via-transparent",
           liveMode 
-            ? "from-[var(--live-bg)] via-[var(--live-bg)]/40 to-black/40" 
-            : "from-black/60 via-black/20 to-black/30"
+            ? "from-[var(--live-bg)] via-[var(--live-bg)]/60 to-black/30" // Dark mode blend
+            : "from-[#F9F8F2] via-[#F9F8F2]/60 to-black/20" // Light mode blend: White/Cream at bottom
         )} />
       </motion.div>
 
-      {/* Content: Centered & Elegant */}
+      {/* Content: Centered & Elegant (White Text) */}
       <div className="relative z-10 max-w-4xl w-full mx-auto text-white">
         <motion.div 
           initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
@@ -286,16 +287,16 @@ function Hero({ event, liveMode }: any) {
              <div className="h-px w-12 bg-white/80"></div>
           </div>
 
-          {/* Title: Big, Bold, Elegant */}
+          {/* Title */}
           <h1 className={cn(
-            "text-5xl md:text-7xl font-bold leading-[1.1] tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]", 
+            "text-5xl md:text-7xl font-bold leading-[1.1] tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]", 
             mincho.className
           )}>
             {event.title}
           </h1>
 
-          {/* Info Block: Date & Location (Centered) */}
-          <div className="flex flex-col items-center gap-4 text-white/90 pt-4">
+          {/* Info Block */}
+          <div className="flex flex-col items-center gap-4 text-white/90 pt-4 drop-shadow-md">
              {event.date && (
                 <div className={cn("text-lg font-medium tracking-wide", cormorant.className)}>
                    {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })}
@@ -333,13 +334,11 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
   );
 
   switch (block.type) {
-    // === 2. GREETING: Text Focused Layout ===
     case "greeting":
       return (
         <Wrapper>
           <SectionHeader title="Greeting" subtitle="ご挨拶" liveMode={liveMode} />
           <div className="max-w-xl mx-auto">
-             {/* Header: Photo & Name (Subtle) */}
              <div className="flex items-center gap-5 mb-8 pb-4 border-b border-[var(--line)]/50">
                {content.image && (
                  <div className="w-16 h-16 rounded-full overflow-hidden border border-[var(--line)] shadow-sm shrink-0">
@@ -351,8 +350,6 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
                   <p className={cn("text-[10px] opacity-60 uppercase tracking-widest mt-0.5", cinzel.className)}>{content.role}</p>
                </div>
              </div>
-             
-             {/* Body: Pure Text */}
              <div className="space-y-6">
                 <p className="text-base leading-[2.2] text-justify font-serif opacity-90">
                   {content.text}
@@ -362,12 +359,11 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
         </Wrapper>
       );
 
-    // === 2 (Program). TIMELINE: Vertical Line & Humble Active State ===
+    // === 2 (Program). REFRESHED TIMELINE ITEM ===
     case "program":
       return (
         <Wrapper>
           <SectionHeader title="Program" subtitle="プログラム" liveMode={liveMode} />
-          {/* Vertical Timeline Container */}
           <div className="relative pl-6 md:pl-8 border-l border-[var(--line)] space-y-12">
             {(content.items || []).map((item: any, i: number) => (
               <ProgramItem key={i} item={item} index={i} encoreRevealed={encoreRevealed} liveMode={liveMode} />
@@ -388,7 +384,6 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
         </Wrapper>
       );
 
-    // === 3 (Gallery). GALLERY: Art Book Style ===
     case "gallery":
       return (
         <Wrapper>
@@ -508,7 +503,7 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
     );
   }
 
-  // --- Song Item (Timeline) ---
+  // --- Song Item (Refined) ---
   return (
     <div className="relative group pl-4">
       {/* Timeline Node (Dot) */}
@@ -523,36 +518,45 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
         className="cursor-pointer"
         onClick={() => item.description && setIsOpen(!isOpen)}
       >
-        <div className="flex flex-col gap-1">
-           {/* Humble "Now Playing" Indicator */}
-           {active && (
-              <span className={cn(
-                "text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 mb-1 animate-pulse", 
-                liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]"
-              )}>
-                <Sparkles size={8}/> Now Playing
-              </span>
-           )}
-
-           {/* Title & Composer */}
-           <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1 md:gap-8">
+        <div className="flex flex-col">
+           {/* Row 1: Title & Composer */}
+           <div className="flex flex-col md:flex-row md:items-baseline justify-between gap-1 md:gap-4 mb-1">
               <h3 className={cn(
-                "text-lg font-bold leading-snug font-serif transition-colors duration-500", 
+                "text-xl md:text-2xl font-bold font-serif leading-tight transition-colors duration-500", 
                 active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]") : ""
               )}>
                 {item.title}
               </h3>
-              <span className={cn("text-sm opacity-60 italic", cormorant.className)}>{item.composer}</span>
+              <span className={cn("text-xs md:text-sm opacity-50 italic shrink-0 text-right", cormorant.className)}>
+                {item.composer}
+              </span>
            </div>
            
-           {/* Performer */}
+           {/* Row 2: Performer with decoration */}
            {item.performer && (
-              <div className="text-xs font-serif opacity-70 mt-1">
-                {item.performer}
+              <div className="flex items-center gap-2 mt-1">
+                 <div className={cn("h-px w-4 opacity-30", liveMode ? "bg-white" : "bg-black")}></div>
+                 <span className={cn(
+                   "text-xs md:text-sm font-medium tracking-wide opacity-80",
+                   active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]") : ""
+                 )}>
+                   {item.performer}
+                 </span>
               </div>
            )}
            
-           {item.isEncore && <span className={cn("text-[9px] mt-1 inline-block opacity-50 uppercase tracking-widest", cinzel.className)}>Encore</span>}
+           {/* Encore & Playing Indicator */}
+           <div className="flex items-center gap-2 mt-1">
+              {item.isEncore && <span className={cn("text-[9px] opacity-50 uppercase tracking-widest", cinzel.className)}>Encore</span>}
+              {active && (
+                 <span className={cn(
+                   "text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 animate-pulse", 
+                   liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]"
+                 )}>
+                   <Sparkles size={8}/> Playing
+                 </span>
+              )}
+           </div>
         </div>
 
         {/* Description Accordion */}
