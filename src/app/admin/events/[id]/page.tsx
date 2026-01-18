@@ -18,19 +18,14 @@ import {
   Camera,
   Upload,
   Coffee,
-  Play,
-  Pause,
   Edit3,
   MonitorPlay,
   Share2,
   Grid,
   X,
   ChevronDown,
-  ChevronUp,
   Type,
-  List,
   Star,
-  StopCircle,
   Copy,
   Mail,
   ArrowUp,
@@ -43,8 +38,6 @@ import {
   MessageCircle,
   Settings,
   Link as LinkIcon,
-  Check,
-  Smartphone,
   GripVertical,
   Calendar,
   MapPin
@@ -73,7 +66,6 @@ const supabase = createClient(
 );
 
 type Props = { params: Promise<{ id: string }> };
-type Tab = "edit" | "live";
 
 // --- Utility Components ---
 function InputField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -85,7 +77,6 @@ function InputField({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-// iPhone Zoom Prevention Input Wrapper
 function NoZoomInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`w-full bg-slate-50 px-3 py-3 rounded-xl text-base outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all placeholder:text-slate-300 text-slate-800 ${props.className || ''}`} />;
 }
@@ -99,7 +90,6 @@ export default function EventEdit({ params }: Props) {
   // --- State ---
   const [event, setEvent] = useState<any>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>("edit");
   const [msg, setMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   
@@ -117,12 +107,6 @@ export default function EventEdit({ params }: Props) {
   const [footerLinks, setFooterLinks] = useState<{survey?: string, donation?: string}>({});
   const [isEventDirty, setIsEventDirty] = useState(false);
 
-  // Live Mode
-  const [encoreRevealed, setEncoreRevealed] = useState(false);
-  const [playingItemId, setPlayingItemId] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
-  const [customBreakTime, setCustomBreakTime] = useState("15");
-
   // DnD Sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -133,10 +117,6 @@ export default function EventEdit({ params }: Props) {
 
   // --- Init ---
   useEffect(() => { load(); }, [id]);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   function showMsg(text: string, isError = false) {
     setMsg({ text, isError });
@@ -155,7 +135,6 @@ export default function EventEdit({ params }: Props) {
     setFooterLinks(theme.footer_links || {});
 
     setIsEventDirty(false);
-    setEncoreRevealed(e.encore_revealed ?? false);
     const { data: b } = await supabase.from("blocks").select("*").eq("event_id", id).order("sort_order", { ascending: true });
     setBlocks(b ?? []);
 
@@ -218,7 +197,6 @@ export default function EventEdit({ params }: Props) {
     const currentTheme = typeof event.theme === 'string' ? JSON.parse(event.theme) : (event.theme || {});
     const newTheme = { ...currentTheme, footer_links: footerLinks };
 
-    // Update cover, theme, date, and location
     const { error } = await supabase.from("events").update({ 
       cover_image: coverImageDraft,
       theme: newTheme,
@@ -234,94 +212,6 @@ export default function EventEdit({ params }: Props) {
         showMsg("保存に失敗しました", true);
     }
     setLoading(false);
-  }
-
-  async function toggleEncore() {
-    const next = !encoreRevealed;
-    setEncoreRevealed(next);
-    await supabase.from("events").update({ encore_revealed: next }).eq("id", id);
-  }
-
-  async function toggleActiveItem(blockId: string, itemIndex: number) {
-    if (!blocks || blocks.length === 0) return;
-    const targetBlockIndex = blocks.findIndex((b) => b.id === blockId);
-    const targetBlock = blocks[targetBlockIndex];
-    if (!targetBlock?.content?.items) return;
-
-    const items = [...targetBlock.content.items];
-    const targetId = `${blockId}-${itemIndex}`;
-    const isCurrentlyActive = playingItemId === targetId;
-    
-    setPlayingItemId(isCurrentlyActive ? null : targetId);
-    items.forEach((it, idx) => {
-        if (idx === itemIndex) it.active = !isCurrentlyActive;
-        else it.active = false; 
-    });
-    
-    const newBlocks = [...blocks];
-    newBlocks[targetBlockIndex] = { ...targetBlock, content: { ...targetBlock.content, items } };
-    setBlocks(newBlocks);
-    await supabase.from("blocks").update({ content: { ...targetBlock.content, items } }).eq("id", blockId);
-  }
-
-  // --- Break Logic ---
-  async function startBreak(minutes: number) {
-    let targetBlockId = null;
-    let targetItemIndex = -1;
-
-    const currentActive = getActiveItemInfo();
-    if (currentActive?.item.type === "break") {
-        targetBlockId = currentActive.block.id;
-        targetItemIndex = currentActive.index;
-    } else {
-        for (const b of blocks) {
-            if (b.type === "program" && b.content?.items) {
-                const idx = b.content.items.findIndex((it:any) => it.type === "break");
-                if (idx !== -1) {
-                    targetBlockId = b.id;
-                    targetItemIndex = idx;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (!targetBlockId) return showMsg("リストに休憩項目がありません", true);
-
-    const targetIndex = blocks.findIndex(b => b.id === targetBlockId);
-    const target = blocks[targetIndex];
-    const end = new Date(Date.now() + minutes * 60000).toISOString();
-    const newItems = [...target.content.items];
-    
-    newItems.forEach(it => it.active = false);
-    
-    newItems[targetItemIndex] = { ...newItems[targetItemIndex], timerEnd: end, duration: `${minutes}分`, active: true };
-    setPlayingItemId(`${targetBlockId}-${targetItemIndex}`);
-    
-    const newBlocks = [...blocks];
-    newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
-    setBlocks(newBlocks);
-
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", targetBlockId);
-    showMsg(`${minutes}分の休憩を開始しました⏳`);
-  }
-
-  async function stopBreak() {
-    const active = getActiveItemInfo();
-    if (!active || active.item.type !== "break") return;
-
-    const targetIndex = blocks.findIndex(b => b.id === active.block.id);
-    const target = blocks[targetIndex];
-    const newItems = [...target.content.items];
-    newItems[active.index] = { ...newItems[active.index], timerEnd: null, active: false };
-
-    setPlayingItemId(null);
-    const newBlocks = [...blocks];
-    newBlocks[targetIndex] = { ...target, content: { ...target.content, items: newItems } };
-    setBlocks(newBlocks);
-
-    await supabase.from("blocks").update({ content: { ...target.content, items: newItems } }).eq("id", active.block.id);
-    showMsg("休憩を終了しました");
   }
 
   // --- Add/Edit/Delete ---
@@ -383,17 +273,6 @@ export default function EventEdit({ params }: Props) {
     }
   };
 
-  const getActiveItemInfo = () => {
-      if (!playingItemId) return null;
-      const [bId, iIdxStr] = playingItemId.split("-");
-      const iIdx = parseInt(iIdxStr);
-      const block = blocks.find(b => b.id === bId);
-      if (!block || !block.content?.items) return null;
-      const item = block.content.items[iIdx];
-      if (!item) return null;
-      return { block, item, index: iIdx };
-  };
-  const activeInfo = getActiveItemInfo();
   const displayCover = coverImageDraft ?? event?.cover_image;
 
   if (!event) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-slate-400" /></div>;
@@ -407,14 +286,16 @@ export default function EventEdit({ params }: Props) {
            <h1 className="text-sm font-bold truncate max-w-[180px] text-slate-800">{event.title}</h1>
            <Link href={`/e/${event.slug}`} target="_blank" className="p-2 bg-slate-100 text-slate-600 rounded-full active:scale-95 transition-transform"><Eye size={18} /></Link>
         </div>
+        
+        {/* NAV TABS (Link to Live) */}
         <div className="px-4 pb-3">
            <div className="flex bg-slate-100 p-1 rounded-xl">
-              <button onClick={() => setActiveTab("edit")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "edit" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400"}`}>
+              <button className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-800 shadow-sm transition-all cursor-default">
                  編集モード
               </button>
-              <button onClick={() => setActiveTab("live")} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "live" ? "bg-slate-800 text-white shadow-sm" : "text-slate-400"}`}>
-                 本番モード
-              </button>
+              <Link href={`/admin/events/${id}/live`} className="flex-1 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-600 text-center transition-all flex items-center justify-center gap-1">
+                 本番コックピット <ExternalLink size={12}/>
+              </Link>
            </div>
         </div>
       </header>
@@ -447,255 +328,156 @@ export default function EventEdit({ params }: Props) {
       )}
 
       {/* MAIN CONTENT */}
-      <main className={`h-[calc(100dvh-7.5rem)] overflow-hidden ${activeTab==='live' ? 'bg-slate-950 text-slate-200' : 'bg-slate-50'}`}>
-        
-        {/* === EDIT TAB === */}
-        {activeTab === "edit" && (
-          <div className="h-full overflow-y-auto pb-32 p-4 space-y-6">
+      <main className="h-[calc(100dvh-7.5rem)] overflow-y-auto pb-32 p-4 space-y-6">
             
-            {/* DISTRIBUTE */}
-            <button onClick={() => setShowShareModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform">
-               <Share2 size={20}/> パンフレットを配布する
-            </button>
+        {/* DISTRIBUTE BUTTON */}
+        <button onClick={() => setShowShareModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 font-bold active:scale-95 transition-transform">
+            <Share2 size={20}/> パンフレットを配布する
+        </button>
 
-            {/* SETTINGS CARD 1: COVER & INFO */}
-            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
-               <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
-                  <Settings size={18} className="text-slate-400"/>
-                  <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
-               </div>
-               
-               <div className="space-y-6">
-                 <div>
-                    <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
-                    <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
-                        {displayCover ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={displayCover} className="w-full h-full object-cover" alt="" />
-                        ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
-                        )}
-                        <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
-                        <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
-                          {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
-                        </div>
-                        <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
-                        </label>
+        {/* SETTINGS CARD 1: COVER & INFO */}
+        <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+            <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
+                <Settings size={18} className="text-slate-400"/>
+                <h3 className="text-sm font-bold text-slate-600">基本設定</h3>
+            </div>
+            
+            <div className="space-y-6">
+                <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-2 ml-1 tracking-wider uppercase">表紙カバー画像</label>
+                <div className="relative aspect-[16/9] bg-slate-50 rounded-xl overflow-hidden border border-slate-200 group">
+                    {displayCover ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={displayCover} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-300"><ImageIcon size={32} className="mb-1"/><span className="text-xs font-bold">画像なし</span></div>
+                    )}
+                    <label className="absolute bottom-3 right-3 z-10 cursor-pointer">
+                    <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 hover:bg-white transition-all active:scale-95">
+                        {uploadingCover ? <Loader2 className="animate-spin" size={14}/> : <Camera size={14}/>} 変更
                     </div>
-                 </div>
+                    <input type="file" className="hidden" accept="image/*" onChange={handleCoverUpload} />
+                    </label>
+                </div>
+                </div>
 
-                 {/* Date & Location Inputs */}
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                       <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">開催日時</label>
-                       <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-                          <Calendar size={18} className="text-slate-400 shrink-0"/>
-                          <NoZoomInput 
-                            type="datetime-local" 
-                            className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
-                            value={event?.date ? new Date(event.date).toISOString().slice(0, 16) : ""}
-                            onChange={(e) => { setEvent({...event, date: e.target.value}); setIsEventDirty(true); }}
-                          />
-                       </div>
-                    </div>
-                    <div>
-                       <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">開催場所</label>
-                       <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-                          <MapPin size={18} className="text-slate-400 shrink-0"/>
-                          <NoZoomInput 
-                            className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
-                            placeholder="会場名"
-                            value={event?.location || ""}
-                            onChange={(e) => { setEvent({...event, location: e.target.value}); setIsEventDirty(true); }}
-                          />
-                       </div>
-                    </div>
-                 </div>
-               </div>
-
-               {isEventDirty && (
-                 <div className="flex justify-end pt-4">
-                   <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
-                 </div>
-               )}
-            </section>
-
-            {/* SETTINGS CARD 2: ACTIONS */}
-            <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
-               <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
-                  <LinkIcon size={18} className="text-slate-400"/>
-                  <h3 className="text-sm font-bold text-slate-600">アクションボタン設定</h3>
-               </div>
-               <div className="space-y-4">
-                   <div>
-                     <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">アンケート URL</label>
-                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
-                       <MessageCircle size={18} className="text-slate-400 shrink-0"/>
-                       <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://forms.google.com/..." value={footerLinks.survey || ""} onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }} />
-                     </div>
-                   </div>
-                   <div>
-                     <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">寄付・支援 URL</label>
-                     <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
-                       <Heart size={18} className="text-slate-400 shrink-0"/>
-                       <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://..." value={footerLinks.donation || ""} onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }} />
-                     </div>
-                   </div>
-               </div>
-               {isEventDirty && (
-                 <div className="flex justify-end pt-4">
-                   <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
-                 </div>
-               )}
-            </section>
-
-            {/* BLOCKS */}
-            <div className="space-y-4">
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                    {blocks.map((b, i) => (
-                      <div key={b.id} className="relative">
-                         <BlockCard 
-                            block={b} index={i} total={blocks.length} 
-                            isExpanded={expandedBlockId === b.id}
-                            onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
-                            onSave={saveBlockContent} onDelete={deleteBlock} onMove={moveBlock} supabaseClient={supabase} 
+                {/* Date & Location Inputs */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">開催日時</label>
+                    <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                        <Calendar size={18} className="text-slate-400 shrink-0"/>
+                        <NoZoomInput 
+                        type="datetime-local" 
+                        className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
+                        value={event?.date ? new Date(event.date).toISOString().slice(0, 16) : ""}
+                        onChange={(e) => { setEvent({...event, date: e.target.value}); setIsEventDirty(true); }}
                         />
-                      </div>
-                    ))}
-                  </SortableContext>
-                </DndContext>
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">開催場所</label>
+                    <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                        <MapPin size={18} className="text-slate-400 shrink-0"/>
+                        <NoZoomInput 
+                        className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300"
+                        placeholder="会場名"
+                        value={event?.location || ""}
+                        onChange={(e) => { setEvent({...event, location: e.target.value}); setIsEventDirty(true); }}
+                        />
+                    </div>
+                </div>
+                </div>
             </div>
 
-            {blocks.length === 0 && (
-              <div className="text-center py-16 text-slate-400 bg-white rounded-[2rem] border border-dashed border-slate-200">
-                <p className="text-sm font-bold">コンテンツがありません</p>
-                <p className="text-xs mt-1">「＋」ボタンで追加してください</p>
-              </div>
+            {isEventDirty && (
+                <div className="flex justify-end pt-4">
+                <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
+                </div>
             )}
-            <div className="h-24" />
-          </div>
+        </section>
+
+        {/* SETTINGS CARD 2: ACTIONS */}
+        <section className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+            <div className="flex items-center gap-2 mb-3 border-b border-slate-50 pb-2">
+                <LinkIcon size={18} className="text-slate-400"/>
+                <h3 className="text-sm font-bold text-slate-600">アクションボタン設定</h3>
+            </div>
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">アンケート URL</label>
+                    <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
+                    <MessageCircle size={18} className="text-slate-400 shrink-0"/>
+                    <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://forms.google.com/..." value={footerLinks.survey || ""} onChange={(e) => { setFooterLinks({...footerLinks, survey: e.target.value}); setIsEventDirty(true); }} />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1 tracking-wider uppercase">寄付・支援 URL</label>
+                    <div className="flex items-center gap-3 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200">
+                    <Heart size={18} className="text-slate-400 shrink-0"/>
+                    <NoZoomInput className="!bg-transparent !px-0 !py-2 border-none focus:ring-0 placeholder:text-slate-300" placeholder="https://..." value={footerLinks.donation || ""} onChange={(e) => { setFooterLinks({...footerLinks, donation: e.target.value}); setIsEventDirty(true); }} />
+                    </div>
+                </div>
+            </div>
+            {isEventDirty && (
+                <div className="flex justify-end pt-4">
+                <button onClick={saveEventMeta} disabled={loading} className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-xs font-bold shadow active:scale-95 transition-transform">設定を保存</button>
+                </div>
+            )}
+        </section>
+
+        {/* BLOCKS (DnD) */}
+        <div className="space-y-4">
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+                {blocks.map((b, i) => (
+                    <div key={b.id} className="relative">
+                        <BlockCard 
+                        block={b} index={i} total={blocks.length} 
+                        isExpanded={expandedBlockId === b.id}
+                        onToggle={() => setExpandedBlockId(expandedBlockId === b.id ? null : b.id)}
+                        onSave={saveBlockContent} onDelete={deleteBlock} onMove={moveBlock} supabaseClient={supabase} 
+                    />
+                    </div>
+                ))}
+                </SortableContext>
+            </DndContext>
+        </div>
+
+        {blocks.length === 0 && (
+            <div className="text-center py-16 text-slate-400 bg-white rounded-[2rem] border border-dashed border-slate-200">
+            <p className="text-sm font-bold">コンテンツがありません</p>
+            <p className="text-xs mt-1">「＋」ボタンで追加してください</p>
+            </div>
         )}
-
-        {/* === LIVE TAB (COCKPIT) === */}
-        {activeTab === "live" && (
-          <div className="h-full flex flex-col relative">
-            {/* 1. Encore Switch */}
-            <div className="shrink-0 bg-slate-900/50 border-b border-slate-800 p-4 flex items-center justify-between">
-               <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${encoreRevealed ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-slate-700'}`}></div>
-                  <span className="text-xs font-bold tracking-widest uppercase text-slate-400">Encore Mode</span>
-               </div>
-               <button onClick={toggleEncore} className={`w-14 h-8 rounded-full border transition-all relative ${encoreRevealed ? 'bg-pink-600 border-pink-500' : 'bg-slate-800 border-slate-700'}`}>
-                  <div className={`absolute top-1 bottom-1 w-6 bg-white rounded-full transition-all ${encoreRevealed ? 'left-7' : 'left-1'}`}></div>
-               </button>
-            </div>
-
-            {/* 2. Timeline */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-               {blocks.filter(b => b.type === "program").map(block => (
-                  <div key={block.id}>
-                     {block.content.items?.map((item: any, i: number) => {
-                        const isActive = playingItemId === `${block.id}-${i}`;
-                        const isBreak = item.type === "break";
-                        if (item.type === "section") return <div key={i} className="pt-8 pb-2 pl-2 text-xs font-bold text-slate-600 border-b border-slate-800 mb-2 uppercase tracking-widest">{item.title}</div>;
-                        if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-900/20 text-yellow-500 border border-yellow-700/30 text-xs rounded">📝 {item.title}</div>;
-                        return (
-                           <div 
-                             key={i} 
-                             onClick={() => !isBreak && toggleActiveItem(block.id, i)}
-                             className={`p-4 flex items-center gap-4 transition-all rounded-xl cursor-pointer border ${isActive ? 'bg-indigo-900/20 border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'bg-slate-900/40 border-slate-800 opacity-60 hover:opacity-100'}`}
-                           >
-                              <div className="shrink-0">
-                                 {isActive ? (
-                                    isBreak ? <Coffee className="text-orange-400 animate-pulse"/> : <div className="w-3 h-3 bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8] animate-pulse"></div>
-                                 ) : (
-                                    <div className="w-2 h-2 rounded-full bg-slate-600"></div>
-                                 )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                 <div className={`text-base ${isActive ? 'font-bold text-white' : 'font-medium text-slate-400'}`}>{item.title}</div>
-                                 <div className="text-xs text-slate-500 mt-1">{isBreak ? item.duration : item.composer}</div>
-                              </div>
-                              {isActive && !isBreak && <span className="text-[10px] font-bold text-indigo-400 border border-indigo-500/50 px-2 py-1 rounded uppercase tracking-wider">Playing</span>}
-                              {isBreak && isActive && <span className="text-[10px] font-bold text-orange-400 border border-orange-500/50 px-2 py-1 rounded uppercase tracking-wider">Break</span>}
-                           </div>
-                        )
-                     })}
-                  </div>
-               ))}
-               <div className="h-40"/>
-            </div>
-
-            {/* 3. Break Controller */}
-            <div className="shrink-0 bg-slate-900 border-t border-slate-800 p-5 pb-8 relative z-20">
-               {activeInfo?.item.type === "break" ? (
-                  <div className="flex items-center gap-6">
-                     <div className="flex-1">
-                        <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Coffee size={12}/> Intermission</div>
-                        <div className="text-5xl font-black text-white tabular-nums font-mono leading-none tracking-tight" style={{textShadow: "0 0 30px rgba(249,115,22,0.4)"}}>
-                           {(() => {
-                              if (!activeInfo.item.timerEnd) return "--:--";
-                              const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
-                              if (diff <= 0) return "00:00";
-                              const m = Math.floor(diff / 60000);
-                              const s = Math.floor((diff % 60000) / 1000);
-                              return `${m}:${s.toString().padStart(2, '0')}`;
-                           })()}
-                        </div>
-                     </div>
-                     <button onClick={stopBreak} className="h-16 w-16 rounded-full bg-red-600/20 border border-red-500 text-red-500 flex flex-col items-center justify-center active:scale-95 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
-                        <StopCircle size={24} />
-                        <span className="text-[9px] font-bold mt-1">STOP</span>
-                     </button>
-                  </div>
-               ) : (
-                  <div className="flex items-center gap-4 justify-between">
-                     {[10, 15, 20].map(min => (
-                        <button key={min} onClick={() => startBreak(min)} className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700 hover:border-slate-500 hover:text-white transition-all active:scale-90">
-                           {min}m
-                        </button>
-                     ))}
-                     <div className="h-10 w-px bg-slate-800"></div>
-                     <div className="flex flex-col items-center gap-1">
-                        <input type="number" className="w-16 bg-slate-800 border border-slate-700 rounded-lg text-center text-white font-bold text-sm py-1 outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-600" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
-                        <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-full shadow-lg active:scale-95 flex items-center gap-1 hover:bg-indigo-500 transition-colors">
-                           <Play size={10} fill="currentColor"/> Start
-                        </button>
-                     </div>
-                  </div>
-               )}
-            </div>
-          </div>
-        )}
+        <div className="h-24" />
       </main>
 
       {/* FAB */}
-      {activeTab === "edit" && (
-        <>
-          <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
-            <div className={`fixed bottom-24 inset-x-4 max-w-xl mx-auto bg-white/90 backdrop-blur-md border border-white/50 rounded-[2rem] p-6 transition-transform duration-300 shadow-2xl ${isAddMenuOpen ? 'translate-y-0' : 'translate-y-10 opacity-0'}`} onClick={e => e.stopPropagation()}>
-              <h3 className="text-center font-bold text-sm mb-6 text-slate-500">コンテンツを追加</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <AddMenuBtn label="ご挨拶" icon={MessageSquare} color="text-orange-500 bg-orange-50" onClick={() => addBlock("greeting")} />
-                <AddMenuBtn label="プログラム" icon={Music} color="text-blue-500 bg-blue-50" onClick={() => addBlock("program")} />
-                <AddMenuBtn label="出演者" icon={User} color="text-green-500 bg-green-50" onClick={() => addBlock("profile")} />
-                <AddMenuBtn label="ギャラリー" icon={Grid} color="text-pink-500 bg-pink-50" onClick={() => addBlock("gallery")} />
-                <AddMenuBtn label="フリー" icon={Type} color="text-indigo-500 bg-indigo-50" onClick={() => addBlock("free")} />
-              </div>
+      <>
+        <div className={`fixed inset-0 z-50 bg-black/20 backdrop-blur-sm transition-opacity duration-300 ${isAddMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsAddMenuOpen(false)}>
+        <div className={`fixed bottom-24 inset-x-4 max-w-xl mx-auto bg-white/90 backdrop-blur-md border border-white/50 rounded-[2rem] p-6 transition-transform duration-300 shadow-2xl ${isAddMenuOpen ? 'translate-y-0' : 'translate-y-10 opacity-0'}`} onClick={e => e.stopPropagation()}>
+            <h3 className="text-center font-bold text-sm mb-6 text-slate-500">コンテンツを追加</h3>
+            <div className="grid grid-cols-3 gap-4">
+            <AddMenuBtn label="ご挨拶" icon={MessageSquare} color="text-orange-500 bg-orange-50" onClick={() => addBlock("greeting")} />
+            <AddMenuBtn label="プログラム" icon={Music} color="text-blue-500 bg-blue-50" onClick={() => addBlock("program")} />
+            <AddMenuBtn label="出演者" icon={User} color="text-green-500 bg-green-50" onClick={() => addBlock("profile")} />
+            <AddMenuBtn label="ギャラリー" icon={Grid} color="text-pink-500 bg-pink-50" onClick={() => addBlock("gallery")} />
+            <AddMenuBtn label="フリー" icon={Type} color="text-indigo-500 bg-indigo-50" onClick={() => addBlock("free")} />
             </div>
-          </div>
-          <button onClick={() => setIsAddMenuOpen(true)} className="fixed bottom-8 right-6 z-40 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center transition-transform active:scale-90 hover:scale-105">
-            <Plus size={28} />
-          </button>
-        </>
-      )}
+        </div>
+        </div>
+        <button onClick={() => setIsAddMenuOpen(true)} className="fixed bottom-8 right-6 z-40 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl shadow-slate-500/50 flex items-center justify-center transition-transform active:scale-90 hover:scale-105">
+        <Plus size={28} />
+        </button>
+      </>
 
     </div>
   );
 }
 
-// --- SUB COMPONENTS ---
+// --- SUB COMPONENTS (AddMenuBtn, BlockCard, ProfileEditor, ProgramItemEditor) ---
+// Note: These helper components are identical to the previous version but essential for the editor.
 
 function AddMenuBtn({ label, icon: Icon, color, onClick }: any) {
   return (
@@ -711,7 +493,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   
-  // Drag and Drop hooks
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: block.id });
   const style = { transform: CSS.Transform.toString(transform), transition, zIndex: isExpanded ? 50 : 'auto', position: 'relative' as 'relative' };
 
@@ -752,7 +533,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
     <div ref={setNodeRef} style={style} className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-slate-100 ${isExpanded ? 'ring-2 ring-indigo-500/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {/* Drag Handle */}
            {!isExpanded && (
              <div {...attributes} {...listeners} className="p-2 text-slate-300 hover:text-indigo-500 cursor-grab active:cursor-grabbing" onClick={e=>e.stopPropagation()}>
                <GripVertical size={20} />
@@ -811,7 +591,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                   </>
               )}
               
-              {/* PROFILE */}
               {block.type === "profile" && (
                 <div className="space-y-4">
                   {(content.people || []).map((p: any, i: number) => (
@@ -825,12 +604,10 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                 </div>
               )}
 
-              {/* PROGRAM */}
               {block.type === "program" && (
                   <div className="space-y-4">
                     {(content.items || []).map((item: any, i: number) => (
                         <div key={i} className="group relative">
-                            {/* Section */}
                             {item.type === "section" && (
                               <div className="flex gap-2 items-center mt-6 mb-2">
                                 <div className="flex flex-col gap-1 mr-1">
@@ -842,7 +619,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                               </div>
                             )}
                             
-                            {/* Memo */}
                             {item.type === "memo" && (
                               <div className="relative p-3 bg-yellow-50 rounded-xl border border-yellow-100 flex gap-2 items-center">
                                  <div className="flex flex-col gap-1 mr-1">
@@ -854,7 +630,6 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
                               </div>
                             )}
 
-                            {/* Song / Break Item */}
                             {(item.type === "song" || item.type === "break") && (
                                 <ProgramItemEditor 
                                   item={item} 
