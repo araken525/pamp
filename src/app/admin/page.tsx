@@ -52,7 +52,7 @@ export default function AdminDashboard() {
     setLoading(true);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) {
-      router.push("/login");
+      router.push("/admin/login");
       return;
     }
     setUser(u.user);
