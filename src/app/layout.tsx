@@ -1,25 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Zen_Old_Mincho } from "next/font/google"; // 明朝体をここに移動して全体適用もアリですが、今回はメタデータのみ変更
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+// フォント設定（もしlayoutで読み込んでいるなら）
+const mincho = Zen_Old_Mincho({ subsets: ["latin"], weight: ["400", "700", "900"], display: "swap" });
 
 export const metadata: Metadata = {
-  title: "PAMP",
-  description: "Webパンフレットを、爆速で。",
+  title: "Tenote | 手のひらの演奏会プログラム",
+  description: "紙の温もりを、デジタルの手軽さで。次世代のデジタルパンフレット作成サービス。",
 };
 
-// ▼ ここが重要です！スマホのバーの色と、ズーム設定を制御します
 export const viewport: Viewport = {
-  // アドレスバーの色を「紙の色」に合わせて一体感を出します
-  // 真っ白がいい場合は "#ffffff" に変えてください
-  themeColor: "#F9F8F2", 
-  
-  // スマホでの表示設定（ズーム禁止など）
+  themeColor: "#F9F8F2",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
@@ -29,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja">
-      <body className={inter.className}>{children}</body>
+      <body className={mincho.className}>{children}</body>
     </html>
   );
 }
