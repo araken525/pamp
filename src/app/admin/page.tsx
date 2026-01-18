@@ -16,13 +16,12 @@ import {
   LayoutTemplate,
   Trash2
 } from "lucide-react";
-import { Cinzel, Zen_Old_Mincho, Cormorant_Garamond } from 'next/font/google';
+import { Cinzel, Zen_Old_Mincho } from 'next/font/google';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 // --- Fonts ---
 const cinzel = Cinzel({ subsets: ["latin"], weight: ["400", "700"] });
-const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "500", "600"], style: ["normal", "italic"] });
 const mincho = Zen_Old_Mincho({ subsets: ["latin"], weight: ["400", "700", "900"] });
 
 // --- Utils ---
@@ -122,6 +121,7 @@ export default function AdminDashboard() {
     }
   }
 
+  // --- 削除機能 ---
   async function deleteEvent(eventId: string) {
     if (!confirm("本当に削除しますか？\nこの操作は取り消せません。")) return;
 
@@ -176,15 +176,15 @@ export default function AdminDashboard() {
            <p className="text-sm opacity-60 font-sans">作成したパンフレットの管理・編集</p>
         </section>
 
-        {/* Create New Bar (Responsive Fixed) */}
+        {/* Create New Bar (New Smartphone-First Design) */}
         <section className="mb-16">
-           <div className="bg-white p-3 rounded-2xl md:rounded-full shadow-sm border border-[#2C2C2C]/5 flex flex-col md:flex-row items-stretch md:items-center max-w-2xl gap-2 md:gap-0">
+           <div className="bg-white p-2 md:p-3 rounded-2xl md:rounded-full shadow-sm border border-[#2C2C2C]/5 flex flex-col md:flex-row items-stretch md:items-center max-w-2xl gap-2 md:gap-0 mx-auto md:mx-0">
               <div className="hidden md:block pl-4 pr-2">
                  <Plus className="text-[#B48E55]" size={20}/>
               </div>
               <form onSubmit={createEvent} className="flex-1 flex flex-col md:flex-row gap-2">
                  <input 
-                   className="flex-1 bg-transparent border border-[#2C2C2C]/10 md:border-none rounded-xl md:rounded-none px-4 md:px-0 outline-none text-sm font-sans placeholder:text-[#2C2C2C]/30 h-12"
+                   className="flex-1 bg-transparent border-none md:border-none px-4 outline-none text-base font-sans placeholder:text-[#2C2C2C]/30 h-12"
                    placeholder="新しい公演タイトルを入力..."
                    value={newTitle}
                    onChange={(e) => setNewTitle(e.target.value)}
@@ -193,9 +193,9 @@ export default function AdminDashboard() {
                  <button 
                    type="submit" 
                    disabled={creating || !newTitle.trim()}
-                   className="bg-[#2C2C2C] text-white px-6 rounded-xl md:rounded-full text-xs font-bold tracking-wider hover:bg-[#404040] disabled:opacity-50 transition-colors h-12 md:h-10 my-auto flex items-center justify-center gap-2"
+                   className="bg-[#2C2C2C] text-white px-6 rounded-xl md:rounded-full text-sm font-bold tracking-wider hover:bg-[#404040] disabled:opacity-50 transition-colors h-12 md:h-10 my-auto flex items-center justify-center gap-2 shadow-sm"
                  >
-                   {creating ? <Loader2 className="animate-spin" size={14}/> : <><Plus size={14} className="md:hidden"/> 作成</>}
+                   {creating ? <Loader2 className="animate-spin" size={16}/> : <><Plus size={16} className="md:hidden"/> 作成</>}
                  </button>
               </form>
            </div>
@@ -206,7 +206,7 @@ export default function AdminDashboard() {
            {events.map((e) => (
              <div key={e.id} className="group bg-white rounded-xl overflow-hidden border border-[#2C2C2C]/5 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col relative">
                 
-                {/* Delete Button (Absolute Top Right) */}
+                {/* Delete Button (Absolute Top Right - Added) */}
                 <button 
                   onClick={() => deleteEvent(e.id)}
                   className="absolute top-3 right-3 z-20 w-8 h-8 bg-white/90 backdrop-blur rounded-full flex items-center justify-center text-[#2C2C2C]/40 hover:text-red-500 hover:bg-red-50 transition-colors shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100"
@@ -220,8 +220,8 @@ export default function AdminDashboard() {
                    {e.cover_image ? (
                       <img src={e.cover_image} className="w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-700" alt="" />
                    ) : (
-                      <div className="w-full h-full flex items-center justify-center opacity-10">
-                         <LayoutTemplate size={32} />
+                      <div className="w-full h-full flex items-center justify-center opacity-10 bg-[#F2F0E9]">
+                         <LayoutTemplate size={32} className="opacity-20"/>
                       </div>
                    )}
                    {/* Preview Button (Absolute Bottom Right of Image) */}
@@ -251,10 +251,10 @@ export default function AdminDashboard() {
 
                       {/* Actions */}
                       <div className="flex gap-2">
-                         <Link href={`/admin/events/${e.id}`} className="flex-1 py-2.5 bg-[#2C2C2C] text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#404040] transition-colors shadow-sm">
+                         <Link href={`/admin/events/${e.id}`} className="flex-1 py-3 bg-[#2C2C2C] text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#404040] transition-colors shadow-sm">
                             <Edit3 size={12} /> 編集
                          </Link>
-                         <Link href={`/admin/events/${e.id}/live`} className="flex-1 py-2.5 border border-[#2C2C2C]/10 text-[#2C2C2C] rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#F2F0E9] transition-colors">
+                         <Link href={`/admin/events/${e.id}/live`} className="flex-1 py-3 border border-[#2C2C2C]/10 text-[#2C2C2C] rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[#F2F0E9] transition-colors">
                             <MonitorPlay size={12} className="text-[#B48E55]" /> 本番
                          </Link>
                       </div>
