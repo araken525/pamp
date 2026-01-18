@@ -15,7 +15,6 @@ import {
   Coffee,
   ChevronDown,
   Sparkles,
-  Music,
   Loader2,
   User,
   Twitter,
@@ -59,23 +58,15 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// --- Theme & Style Configuration ---
+// --- Theme Config (Pure Paper Style) ---
 function getThemeColors(palette: any) {
   const accent = palette?.accent ?? "#B48E55"; // Classic Antique Gold
   return {
-    // Standard Mode (Paper)
     "--bg": "#F9F8F2", 
     "--text": "#2A2A2A", 
     "--accent": accent,
     "--muted": "#888888",
     "--line": "#E5E5E5",
-    
-    // Live Mode (Midnight Blue Velvet)
-    "--live-bg": "#0f172a", // Deep Midnight Blue
-    "--live-text": "#e2e8f0", // Silver Grey
-    "--live-accent": "#fcd34d", // Champagne Gold
-    "--live-line": "#334155",
-    "--live-glow": "rgba(252, 211, 77, 0.4)",
   } as React.CSSProperties;
 }
 
@@ -84,24 +75,18 @@ type Props = { params: Promise<{ slug: string }> };
 export default function EventViewer({ params }: Props) {
   const { slug } = use(params);
   
-  // --- State ---
   const [event, setEvent] = useState<any>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [liveMode, setLiveMode] = useState(false);
   const [footerLinks, setFooterLinks] = useState<{survey?: string, donation?: string}>({});
   const [activeBreak, setActiveBreak] = useState<{end: string, duration: string} | null>(null);
 
-  // --- Initialization ---
   useEffect(() => {
     let channel: any;
     async function init() {
       setLoading(true);
       const { data: e, error } = await supabase.from("events").select("*").eq("slug", slug).single();
-      if (error || !e) { 
-        setLoading(false); 
-        return; 
-      }
+      if (error || !e) { setLoading(false); return; }
       setEvent(e);
       
       const theme = typeof e.theme === 'string' ? JSON.parse(e.theme) : (e.theme || {});
@@ -150,9 +135,8 @@ export default function EventViewer({ params }: Props) {
   return (
     <div 
       className={cn(
-        "min-h-screen transition-colors duration-1000 ease-in-out selection:bg-[var(--accent)]/20 overflow-x-hidden touch-pan-y",
-        mincho.className,
-        liveMode ? "bg-[var(--live-bg)] text-[var(--live-text)]" : "bg-[var(--bg)] text-[var(--text)]"
+        "min-h-screen bg-[var(--bg)] text-[var(--text)] selection:bg-[var(--accent)]/20 overflow-x-hidden touch-pan-y",
+        mincho.className
       )}
       style={cssVars}
     >
@@ -161,30 +145,10 @@ export default function EventViewer({ params }: Props) {
       `}</style>
 
       {/* Paper Texture */}
-      <div className={cn(
-        "fixed inset-0 pointer-events-none z-0 mix-blend-multiply transition-opacity duration-1000",
-        liveMode ? "opacity-0" : "opacity-[0.04]"
-      )} style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
+      <div className="fixed inset-0 pointer-events-none z-0 mix-blend-multiply opacity-[0.04]" 
+           style={{backgroundImage: `url("https://www.transparenttextures.com/patterns/cream-paper.png")`}}></div>
       
-      {/* Live Mode Toggle */}
-      <nav className="fixed top-6 right-6 z-50 flex items-center gap-3 mix-blend-difference text-white">
-        <button 
-          onClick={() => setLiveMode(!liveMode)}
-          className={cn(
-            "flex items-center gap-2 px-5 py-2.5 rounded-full backdrop-blur-xl border transition-all duration-700 shadow-2xl group",
-            liveMode 
-              ? "bg-white/10 border-white/20 text-[var(--live-accent)] shadow-[0_0_25px_rgba(252,211,77,0.2)]" 
-              : "bg-black/10 border-white/10 text-white/80 hover:bg-black/20"
-          )}
-        >
-          <Music size={14} className={liveMode ? "animate-pulse" : "group-hover:scale-110 transition-transform"} />
-          <span className={cn("text-[10px] tracking-widest font-bold uppercase", cinzel.className)}>
-            {liveMode ? "Live Mode" : "View"}
-          </span>
-        </button>
-      </nav>
-
-      {/* Break Timer */}
+      {/* Break Timer Float */}
       <AnimatePresence>
         {activeBreak && (
            <motion.div 
@@ -192,12 +156,7 @@ export default function EventViewer({ params }: Props) {
              animate={{ y: 0, opacity: 1 }}
              exit={{ y: 100, opacity: 0 }}
              transition={{ type: "spring", stiffness: 200, damping: 20 }}
-             className={cn(
-               "fixed bottom-8 right-6 z-50 backdrop-blur-lg border p-5 rounded-[1.5rem] shadow-2xl flex flex-col items-center gap-1.5",
-               liveMode 
-                 ? "bg-white/5 border-[var(--live-accent)]/30 text-[var(--live-accent)] shadow-[0_0_30px_rgba(0,0,0,0.5)]" 
-                 : "bg-white/60 border-[var(--accent)]/30 text-[var(--accent)]"
-             )}
+             className="fixed bottom-8 right-6 z-50 backdrop-blur-lg border border-[var(--accent)]/30 p-5 rounded-[1.5rem] shadow-2xl flex flex-col items-center gap-1.5 bg-white/80 text-[var(--accent)]"
            >
               <span className="text-[9px] font-bold tracking-widest flex items-center gap-1.5 animate-pulse">
                 <Coffee size={12}/> 休憩中
@@ -207,7 +166,7 @@ export default function EventViewer({ params }: Props) {
         )}
       </AnimatePresence>
 
-      <Hero event={event} liveMode={liveMode} />
+      <Hero event={event} />
       
       <main className="max-w-3xl mx-auto px-6 pb-32 space-y-32 relative z-10">
         {blocks.map((block, i) => (
@@ -216,21 +175,20 @@ export default function EventViewer({ params }: Props) {
             block={block} 
             index={i} 
             encoreRevealed={event.encore_revealed} 
-            liveMode={liveMode}
           />
         ))}
       </main>
 
       <div className="relative z-10">
-        <FooterActions links={footerLinks} liveMode={liveMode} />
-        <Footer event={event} liveMode={liveMode} />
+        <FooterActions links={footerLinks} />
+        <Footer event={event} />
       </div>
     </div>
   );
 }
 
 // ------------------------------------------------------------------
-// CORE COMPONENTS
+// COMPONENTS
 // ------------------------------------------------------------------
 
 function LoadingScreen() {
@@ -244,8 +202,8 @@ function LoadingScreen() {
   );
 }
 
-// === 1. HERO: White Text & Natural Bottom Gradient ===
-function Hero({ event, liveMode }: any) {
+// === 1. HERO REFRESH: The "White Canvas" Style ===
+function Hero({ event }: any) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
   const y = useTransform(scrollYProgress, [0, 1], ["0%", "40%"]);
@@ -254,61 +212,60 @@ function Hero({ event, liveMode }: any) {
   return (
     <motion.header 
       ref={ref}
-      className="relative h-[90vh] w-full overflow-hidden flex flex-col justify-end items-center text-center px-6 pb-24 mb-24"
+      className="relative h-[95vh] w-full overflow-hidden flex flex-col justify-end items-center text-center px-6 pb-24 mb-24"
     >
-      {/* Background */}
+      {/* Background Image */}
       <motion.div style={{ y, opacity }} className="absolute inset-0 z-0">
         {event.cover_image ? (
-          <img src={event.cover_image} className="w-full h-full object-cover brightness-[0.8]" alt="cover" />
+          <img src={event.cover_image} className="w-full h-full object-cover" alt="cover" />
         ) : (
-          <div className="w-full h-full bg-stone-800" />
+          <div className="w-full h-full bg-stone-200" />
         )}
         
-        {/* Natural Blend Gradient (Paper Color at Bottom) */}
-        <div className={cn(
-          "absolute inset-0 bg-gradient-to-t via-transparent",
-          liveMode 
-            ? "from-[var(--live-bg)] via-[var(--live-bg)]/60 to-black/30" // Dark mode blend
-            : "from-[#F9F8F2] via-[#F9F8F2]/60 to-black/20" // Light mode blend: White/Cream at bottom
-        )} />
+        {/* The "Fog" Gradient: Transparent -> Solid Paper Color */}
+        {/* これにより、画像の下半分が徐々に紙の白さに同化し、文字が最高に読みやすくなる */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg)]/60 to-[var(--bg)]" />
       </motion.div>
 
-      {/* Content: Centered & Elegant (White Text) */}
-      <div className="relative z-10 max-w-4xl w-full mx-auto text-white">
+      {/* Content: Ink Black Text on White Fog */}
+      <div className="relative z-10 max-w-4xl w-full mx-auto text-[var(--text)]">
         <motion.div 
-          initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="flex flex-col items-center space-y-8"
+          initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+          className="flex flex-col items-center space-y-10"
         >
           {/* Label */}
-          <div className="flex flex-col items-center gap-3">
-             <span className={cn("text-xs tracking-[0.3em] uppercase font-bold text-white/90", cinzel.className)}>
+          <div className="flex flex-col items-center gap-3 opacity-60">
+             <span className={cn("text-xs tracking-[0.3em] uppercase font-bold", cinzel.className)}>
                Digital Pamphlet
              </span>
-             <div className="h-px w-12 bg-white/80"></div>
+             <div className="h-px w-8 bg-current"></div>
           </div>
 
-          {/* Title */}
+          {/* Title: Jet Black, Big, Serif */}
           <h1 className={cn(
-            "text-5xl md:text-7xl font-bold leading-[1.1] tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)]", 
+            "text-5xl md:text-8xl font-bold leading-[1.1] tracking-tight text-slate-900 drop-shadow-sm", 
             mincho.className
           )}>
             {event.title}
           </h1>
 
-          {/* Info Block */}
-          <div className="flex flex-col items-center gap-4 text-white/90 pt-4 drop-shadow-md">
-             {event.date && (
-                <div className={cn("text-lg font-medium tracking-wide", cormorant.className)}>
-                   {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })}
-                   <span className="mx-2">/</span>
-                   <span>{new Date(event.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-             )}
-             {event.location && (
-                <div className="text-base font-serif flex items-center justify-center gap-2 tracking-wider uppercase opacity-90">
-                   <MapPin size={14} className="opacity-80"/> <span>{event.location}</span>
-                </div>
-             )}
+          {/* Info Block: Elegant Divider */}
+          <div className="flex flex-col items-center gap-6 pt-6 border-t border-black/10 w-full max-w-lg">
+             <div className="flex flex-col md:flex-row items-center gap-4 md:gap-10">
+                {event.date && (
+                    <div className={cn("text-lg tracking-wide flex items-center gap-2", cormorant.className)}>
+                       <Calendar size={16} className="text-[var(--accent)]"/>
+                       {new Date(event.date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                       <span className="opacity-50 mx-1">/</span>
+                       {new Date(event.date).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                )}
+                {event.location && (
+                    <div className="text-base font-serif flex items-center gap-2 tracking-wider uppercase opacity-80">
+                       <MapPin size={16} className="text-[var(--accent)]"/> <span>{event.location}</span>
+                    </div>
+                )}
+             </div>
           </div>
         </motion.div>
       </div>
@@ -316,7 +273,7 @@ function Hero({ event, liveMode }: any) {
   );
 }
 
-function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
+function BlockRenderer({ block, index, encoreRevealed }: any) {
   const content = block.content || {};
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, margin: "-50px" });
@@ -337,7 +294,7 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
     case "greeting":
       return (
         <Wrapper>
-          <SectionHeader title="Greeting" subtitle="ご挨拶" liveMode={liveMode} />
+          <SectionHeader title="Greeting" subtitle="ご挨拶" />
           <div className="max-w-xl mx-auto">
              <div className="flex items-center gap-5 mb-8 pb-4 border-b border-[var(--line)]/50">
                {content.image && (
@@ -359,14 +316,17 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
         </Wrapper>
       );
 
-    // === 2 (Program). REFRESHED TIMELINE ITEM ===
+    // === 2. PROGRAM: Center Stage Style ===
     case "program":
       return (
         <Wrapper>
-          <SectionHeader title="Program" subtitle="プログラム" liveMode={liveMode} />
-          <div className="relative pl-6 md:pl-8 border-l border-[var(--line)] space-y-12">
+          <SectionHeader title="Program" subtitle="プログラム" />
+          <div className="relative space-y-12">
+            {/* Timeline Line (Left Side) */}
+            <div className="absolute left-[3px] top-4 bottom-4 w-px bg-[var(--line)]"></div>
+            
             {(content.items || []).map((item: any, i: number) => (
-              <ProgramItem key={i} item={item} index={i} encoreRevealed={encoreRevealed} liveMode={liveMode} />
+              <ProgramItem key={i} item={item} index={i} encoreRevealed={encoreRevealed} />
             ))}
           </div>
         </Wrapper>
@@ -375,10 +335,10 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
     case "profile":
       return (
         <Wrapper>
-          <SectionHeader title="Artists" subtitle="出演者" liveMode={liveMode} />
+          <SectionHeader title="Artists" subtitle="出演者" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-16">
             {(content.people || []).map((p: any, i: number) => (
-              <ProfileItem key={i} p={p} liveMode={liveMode} />
+              <ProfileItem key={i} p={p} />
             ))}
           </div>
         </Wrapper>
@@ -400,7 +360,7 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
                 {(content.images || []).map((url: string, i: number) => (
                    <div key={i} className={cn(
                      "relative aspect-[4/5] overflow-hidden bg-stone-100 shadow-sm",
-                     i % 3 === 0 ? "md:col-span-2 md:aspect-[16/10]" : "" // Variation
+                     i % 3 === 0 ? "md:col-span-2 md:aspect-[16/10]" : "" 
                    )}>
                       <img src={url} className="w-full h-full object-cover transition-transform duration-1000 hover:scale-105" alt="" />
                    </div>
@@ -414,7 +374,7 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
       return (
         <Wrapper>
           <div className="mb-6 pl-4 border-l-2 border-[var(--accent)]/50">
-             <h3 className={cn("text-xl font-bold tracking-widest font-serif", liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}>
+             <h3 className={cn("text-xl font-bold tracking-widest font-serif", "text-[var(--accent)]")}>
                {content.title || "Information"}
              </h3>
           </div>
@@ -434,10 +394,10 @@ function BlockRenderer({ block, index, encoreRevealed, liveMode }: any) {
 // SUB COMPONENTS
 // ------------------------------------------------------------------
 
-function SectionHeader({ title, subtitle, liveMode }: any) {
+function SectionHeader({ title, subtitle }: any) {
   return (
     <div className="text-center mb-20">
-      <h2 className={cn("text-3xl font-normal tracking-[0.2em] uppercase mb-2", cinzel.className, liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]")}>
+      <h2 className={cn("text-3xl font-normal tracking-[0.2em] uppercase mb-2", cinzel.className, "text-[var(--accent)]")}>
         {title}
       </h2>
       <span className="text-[10px] tracking-[0.3em] opacity-40 uppercase block">{subtitle}</span>
@@ -445,7 +405,7 @@ function SectionHeader({ title, subtitle, liveMode }: any) {
   );
 }
 
-function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
+function ProgramItem({ item, index, encoreRevealed }: any) {
   const [isOpen, setIsOpen] = useState(false);
   const isBreak = item.type === "break";
   const isSection = item.type === "section";
@@ -456,11 +416,10 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
   // --- Section Divider ---
   if (isSection) {
     return (
-      <div className="relative -ml-6 md:-ml-8 pt-8 pb-4">
-        <div className={cn("absolute left-0 top-1/2 w-4 md:w-6 h-px", liveMode ? "bg-[var(--live-line)]" : "bg-[var(--line)]")}></div>
+      <div className="relative pt-8 pb-4 flex justify-center">
+        <div className="absolute left-0 top-1/2 w-full h-px bg-[var(--line)] -z-10"></div>
         <span className={cn(
-          "ml-8 md:ml-10 text-sm font-bold tracking-[0.2em] uppercase font-serif block",
-          liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]"
+          "px-6 text-sm font-bold tracking-[0.2em] uppercase font-serif bg-[var(--bg)] text-[var(--accent)]"
         )}>
           {item.title}
         </span>
@@ -471,7 +430,7 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
   // --- Memo ---
   if (item.type === "memo") {
     return (
-      <div className="pl-4 py-2 opacity-50">
+      <div className="pl-8 py-2 opacity-50 text-center">
         <span className={cn("text-xs italic tracking-wider", cormorant.className)}>* {item.title}</span>
       </div>
     );
@@ -481,17 +440,15 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
   if (isBreak) {
     return (
       <div className={cn(
-        "relative pl-6 py-6 transition-all duration-500",
+        "relative pl-8 py-6 transition-all duration-500",
         active ? "opacity-100" : "opacity-50"
       )}>
         <div className={cn(
-           "absolute -left-[5px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 bg-[var(--bg)] z-10",
-           liveMode 
-             ? (active ? "border-[var(--live-accent)] bg-[var(--live-accent)] shadow-[0_0_10px_var(--live-accent)]" : "border-[var(--live-line)]")
-             : (active ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--line)]")
+           "absolute left-0 top-1/2 -translate-y-1/2 w-[7px] h-[7px] rounded-full border bg-[var(--bg)] z-10",
+           active ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--muted)]"
         )}></div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-center gap-3 border-y border-[var(--line)] py-3 mx-4">
            <span className="text-xs font-bold tracking-[0.2em] uppercase">休 憩</span>
            {active && item.timerEnd ? (
               <span className="text-xs font-mono animate-pulse text-[var(--accent)]">Running</span>
@@ -503,65 +460,62 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
     );
   }
 
-  // --- Song Item (Refined) ---
+  // --- Song Item (Center Focus Layout) ---
   return (
-    <div className="relative group pl-4">
-      {/* Timeline Node (Dot) */}
+    <div className="relative group pl-6">
+      {/* Timeline Node */}
       <div className={cn(
-         "absolute -left-[5px] top-6 w-2.5 h-2.5 rounded-full border-2 transition-all duration-500 z-10",
-         liveMode 
-           ? (active ? "border-[var(--live-accent)] bg-[var(--live-accent)] shadow-[0_0_15px_var(--live-accent)] scale-125" : "border-[var(--live-line)] bg-[var(--live-bg)]")
-           : (active ? "border-[var(--accent)] bg-[var(--accent)] scale-125" : "border-[var(--line)] bg-[var(--bg)]")
+         "absolute left-0 top-8 -translate-y-1/2 w-[7px] h-[7px] rounded-full border transition-all duration-500 z-10 bg-[var(--bg)]",
+         active ? "border-[var(--accent)] bg-[var(--accent)] scale-125" : "border-[var(--muted)]"
       )}></div>
 
       <div 
-        className="cursor-pointer"
+        className="cursor-pointer px-2"
         onClick={() => item.description && setIsOpen(!isOpen)}
       >
-        <div className="flex flex-col">
-           {/* Row 1: Title & Composer */}
-           <div className="flex flex-col md:flex-row md:items-baseline justify-between gap-1 md:gap-4 mb-1">
+        {/* Humble Playing Indicator (Above) */}
+        {active && (
+          <div className="flex justify-center mb-2">
+            <span className="text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 animate-pulse text-[var(--accent)]">
+              <Sparkles size={8}/> Playing
+            </span>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+           {/* Center Area: Title & Composer */}
+           <div className="text-center">
               <h3 className={cn(
-                "text-xl md:text-2xl font-bold font-serif leading-tight transition-colors duration-500", 
-                active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]") : ""
+                "text-xl md:text-2xl font-bold font-serif leading-tight transition-colors duration-500 mb-1", 
+                active ? "text-[var(--accent)]" : ""
               )}>
                 {item.title}
               </h3>
-              <span className={cn("text-xs md:text-sm opacity-50 italic shrink-0 text-right", cormorant.className)}>
+              <div className={cn("text-xs md:text-sm opacity-60 italic", cormorant.className)}>
                 {item.composer}
-              </span>
+              </div>
            </div>
            
-           {/* Row 2: Performer with decoration */}
+           {/* Right Area: Performer (Aligned to Right with decor) */}
            {item.performer && (
-              <div className="flex items-center gap-2 mt-1">
-                 <div className={cn("h-px w-4 opacity-30", liveMode ? "bg-white" : "bg-black")}></div>
-                 <span className={cn(
-                   "text-xs md:text-sm font-medium tracking-wide opacity-80",
-                   active ? (liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]") : ""
-                 )}>
+              <div className="flex justify-end items-center gap-2 mt-1 opacity-80">
+                 <div className="h-px w-8 bg-current opacity-30"></div>
+                 <span className={cn("text-xs font-serif font-medium", mincho.className)}>
                    {item.performer}
                  </span>
               </div>
            )}
            
-           {/* Encore & Playing Indicator */}
-           <div className="flex items-center gap-2 mt-1">
-              {item.isEncore && <span className={cn("text-[9px] opacity-50 uppercase tracking-widest", cinzel.className)}>Encore</span>}
-              {active && (
-                 <span className={cn(
-                   "text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 animate-pulse", 
-                   liveMode ? "text-[var(--live-accent)]" : "text-[var(--accent)]"
-                 )}>
-                   <Sparkles size={8}/> Playing
-                 </span>
-              )}
-           </div>
+           {item.isEncore && (
+             <div className="text-center mt-1">
+               <span className={cn("text-[9px] opacity-50 uppercase tracking-widest border border-current px-2 py-0.5 rounded-full", cinzel.className)}>Encore</span>
+             </div>
+           )}
         </div>
 
         {/* Description Accordion */}
-        <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0")}>
-           <div className="overflow-hidden min-h-0 pl-2 border-l-2 border-[var(--line)]/50">
+        <div className={cn("grid transition-all duration-500 ease-out overflow-hidden", isOpen ? "grid-rows-[1fr] opacity-100 mt-6" : "grid-rows-[0fr] opacity-0")}>
+           <div className="overflow-hidden min-h-0 px-4 py-4 bg-stone-50/50 rounded-lg">
               <p className="text-sm leading-7 text-justify opacity-80 font-serif">
                 {item.description}
               </p>
@@ -569,7 +523,7 @@ function ProgramItem({ item, index, encoreRevealed, liveMode }: any) {
         </div>
         
         {item.description && (
-           <div className="flex justify-start mt-2 opacity-20">
+           <div className="flex justify-center mt-3 opacity-20">
               <ChevronDown size={12} className={cn("transition-transform duration-300", isOpen ? "rotate-180" : "")} />
            </div>
         )}
@@ -592,17 +546,13 @@ function Countdown({ target }: { target: string }) {
   return <div className="text-2xl font-mono font-bold tracking-widest">{left}</div>;
 }
 
-function ProfileItem({ p, liveMode }: any) {
+function ProfileItem({ p }: any) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Minimal Card */}
       <div className="flex items-center gap-5">
-         <div className={cn(
-           "relative w-20 h-24 rounded-sm overflow-hidden bg-stone-200 shrink-0",
-           liveMode ? "opacity-90" : ""
-         )}>
+         <div className="relative w-20 h-24 rounded-sm overflow-hidden bg-stone-200 shrink-0">
            {p.image ? (
              <img src={p.image} className="w-full h-full object-cover grayscale-[20%]" alt={p.name} />
            ) : (
@@ -622,7 +572,7 @@ function ProfileItem({ p, liveMode }: any) {
 
       <div className="relative">
         <div className={cn("overflow-hidden transition-all duration-500", isOpen ? "max-h-[1000px]" : "max-h-0")}>
-           <p className={cn("text-xs md:text-sm leading-6 opacity-70 font-serif whitespace-pre-wrap pl-1 border-l-2", liveMode ? "border-white/20" : "border-black/10")}>
+           <p className="text-xs md:text-sm leading-6 opacity-70 font-serif whitespace-pre-wrap pl-1 border-l-2 border-black/10">
              {p.bio}
            </p>
         </div>
@@ -636,14 +586,14 @@ function ProfileItem({ p, liveMode }: any) {
   );
 }
 
-function FooterActions({ links, liveMode }: { links: { survey?: string, donation?: string }, liveMode: boolean }) {
+function FooterActions({ links }: { links: { survey?: string, donation?: string } }) {
   if (!links.survey && !links.donation) return null;
   return (
     <div className="max-w-md mx-auto px-6 mb-20 space-y-4">
       {links.survey && (
         <a href={links.survey} target="_blank" rel="noopener noreferrer" className={cn(
           "flex items-center justify-center gap-3 w-full py-4 rounded-sm transition-opacity hover:opacity-90",
-          liveMode ? "bg-[var(--live-text)] text-[var(--live-bg)]" : "bg-[var(--text)] text-[var(--bg)]"
+          "bg-[var(--text)] text-[var(--bg)]"
         )}>
            <MessageCircle size={18} />
            <span className="text-xs font-bold tracking-widest uppercase">アンケートに回答する</span>
@@ -652,7 +602,7 @@ function FooterActions({ links, liveMode }: { links: { survey?: string, donation
       {links.donation && (
         <a href={links.donation} target="_blank" rel="noopener noreferrer" className={cn(
           "flex items-center justify-center gap-3 w-full py-4 border rounded-sm transition-colors",
-          liveMode ? "border-[var(--live-accent)] text-[var(--live-accent)] hover:bg-[var(--live-accent)]/10" : "border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)]/5"
+          "border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)]/5"
         )}>
            <Heart size={18} />
            <span className="text-xs font-bold tracking-widest uppercase">活動を支援する</span>
@@ -663,7 +613,7 @@ function FooterActions({ links, liveMode }: { links: { survey?: string, donation
   );
 }
 
-function Footer({ event, liveMode }: any) {
+function Footer({ event }: any) {
   return (
     <footer className="py-20 text-center opacity-40 space-y-4">
       <div className="w-px h-12 bg-current mx-auto"></div>
