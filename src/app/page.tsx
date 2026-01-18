@@ -5,27 +5,27 @@ import { motion } from "framer-motion";
 import { 
   ArrowRight, 
   Sparkles, 
-  BookOpen, 
   Smartphone, 
   Zap,
   Music,
   Feather
 } from "lucide-react";
 import { Cinzel, Zen_Old_Mincho } from 'next/font/google';
-import { cn } from "@/lib/utils"; // If you have a utils file, or define cn locally
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 // --- Fonts ---
 const cinzel = Cinzel({ subsets: ["latin"], weight: ["400", "700"] });
 const mincho = Zen_Old_Mincho({ subsets: ["latin"], weight: ["400", "700", "900"] });
 
-// --- Utils (Local definition if needed) ---
-function classNames(...classes: (string | undefined | null | false)[]) {
-  return classes.filter(Boolean).join(' ');
+// --- Utils (Defined Locally to avoid import errors) ---
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
 
 export default function LandingPage() {
   return (
-    <div className={classNames(
+    <div className={cn(
       "min-h-screen bg-[#F9F8F2] text-[#2C2C2C] selection:bg-[#B48E55]/20 overflow-x-hidden",
       mincho.className
     )}>
@@ -43,7 +43,7 @@ export default function LandingPage() {
         >
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#2C2C2C]/10 bg-white/50 backdrop-blur-sm">
-            <span className={classNames("text-[10px] tracking-[0.2em] font-bold uppercase opacity-60", cinzel.className)}>
+            <span className={cn("text-[10px] tracking-[0.2em] font-bold uppercase opacity-60", cinzel.className)}>
               PAMP : Prototype
             </span>
           </div>
@@ -77,7 +77,7 @@ export default function LandingPage() {
       <section className="relative z-10 py-20 px-6 bg-white/40 border-t border-[#2C2C2C]/5">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className={classNames("text-2xl font-bold tracking-[0.2em] mb-2", cinzel.className)}>Why PAMP?</h2>
+            <h2 className={cn("text-2xl font-bold tracking-[0.2em] mb-2", cinzel.className)}>Why PAMP?</h2>
             <p className="text-xs opacity-50 font-sans">選ばれる3つの理由</p>
           </div>
 
@@ -165,7 +165,7 @@ export default function LandingPage() {
 
       {/* --- FOOTER --- */}
       <footer className="relative z-10 py-12 text-center border-t border-[#2C2C2C]/5">
-        <p className={classNames("text-xs font-bold tracking-[0.2em] opacity-30", cinzel.className)}>
+        <p className={cn("text-xs font-bold tracking-[0.2em] opacity-30", cinzel.className)}>
           PAMP - Digital Pamphlet Service
         </p>
         <p className="text-[10px] opacity-30 mt-2 font-sans">© 2026 PAMP Prototype. All Rights Reserved.</p>
