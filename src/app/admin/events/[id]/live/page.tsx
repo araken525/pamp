@@ -1,17 +1,19 @@
 "use client";
 
-import React, { use, useEffect, useState } from "react";
+import React, { use, useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import {
   Loader2,
   Coffee,
   Play,
-  MonitorPlay,
   StopCircle,
-  ExternalLink,
   ChevronLeft,
-  Music
+  Music,
+  Mic2,
+  CheckCircle2,
+  Clock,
+  Radio
 } from "lucide-react";
 
 const supabase = createClient(
@@ -32,6 +34,9 @@ export default function EventLiveCockpit({ params }: Props) {
   const [encoreRevealed, setEncoreRevealed] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [customBreakTime, setCustomBreakTime] = useState("15");
+
+  // Auto-scroll ref
+  const activeItemRef = useRef<HTMLDivElement>(null);
 
   // --- Timer ---
   useEffect(() => {
@@ -63,6 +68,13 @@ export default function EventLiveCockpit({ params }: Props) {
     load();
   }, [id]);
 
+  // Scroll to active item on change
+  useEffect(() => {
+    if (activeItemRef.current) {
+      activeItemRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [playingItemId]);
+
   // --- Actions ---
   async function toggleEncore() {
     const next = !encoreRevealed;
@@ -80,7 +92,6 @@ export default function EventLiveCockpit({ params }: Props) {
     const targetId = `${blockId}-${itemIndex}`;
     const isCurrentlyActive = playingItemId === targetId;
     
-    // Optimistic Update
     setPlayingItemId(isCurrentlyActive ? null : targetId);
     items.forEach((it, idx) => {
         if (idx === itemIndex) it.active = !isCurrentlyActive;
@@ -97,7 +108,6 @@ export default function EventLiveCockpit({ params }: Props) {
     let targetBlockId = null;
     let targetItemIndex = -1;
 
-    // Find break block
     for (const b of blocks) {
         if (b.type === "program" && b.content?.items) {
             const idx = b.content.items.findIndex((it:any) => it.type === "break");
@@ -160,82 +170,128 @@ export default function EventLiveCockpit({ params }: Props) {
   };
   const activeInfo = getActiveItemInfo();
 
-  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="animate-spin text-slate-500"/></div>;
+  if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400"/></div>;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans flex flex-col">
+    <div className="min-h-dvh bg-slate-100 text-slate-800 font-sans flex flex-col">
       
       {/* HEADER */}
-      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 safe-top shadow-md h-14 flex items-center justify-between px-4">
-         <div className="flex items-center gap-3">
-            <Link href={`/admin/events/${id}`} className="text-slate-400 hover:text-white transition-colors">
-               <ChevronLeft />
-            </Link>
-            <h1 className="text-sm font-bold text-white tracking-widest uppercase">Live Cockpit</h1>
-         </div>
-         <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${playingItemId ? 'bg-green-500 animate-pulse' : 'bg-slate-600'}`}></div>
-            <span className="text-[10px] font-bold text-slate-500">{playingItemId ? "ON AIR" : "STANDBY"}</span>
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200 h-16 flex items-center justify-between px-4 shadow-sm">
+         <Link href={`/admin/events/${id}`} className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors p-2 -ml-2">
+            <ChevronLeft size={20}/>
+            <span className="text-xs font-bold">戻る</span>
+         </Link>
+         
+         <div className="flex items-center gap-2 bg-slate-100 py-1.5 px-4 rounded-full border border-slate-200">
+            {playingItemId ? (
+               <>
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                  </span>
+                  <span className="text-[10px] font-black text-green-600 tracking-wider">ON AIR</span>
+               </>
+            ) : (
+               <>
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-400"></div>
+                  <span className="text-[10px] font-black text-slate-500 tracking-wider">STANDBY</span>
+               </>
+            )}
          </div>
       </header>
 
-      {/* MAIN COCKPIT */}
-      <div className="flex-1 flex flex-col relative overflow-hidden">
+      {/* SCROLL AREA */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-40">
          
-         {/* 1. Encore Switch */}
-         <div className="shrink-0 bg-slate-900/50 border-b border-slate-800 p-4 flex items-center justify-between">
+         {/* 1. Global Controls (Encore) */}
+         <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between">
             <div className="flex items-center gap-3">
-               <div className={`w-3 h-3 rounded-full ${encoreRevealed ? 'bg-pink-500 shadow-[0_0_10px_#ec4899]' : 'bg-slate-700'}`}></div>
-               <span className="text-xs font-bold tracking-widest uppercase text-slate-400">Encore Mode</span>
+               <div className={`p-2 rounded-full ${encoreRevealed ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-400'}`}>
+                  <Mic2 size={18}/>
+               </div>
+               <div>
+                  <div className="text-sm font-bold text-slate-800">アンコール表示</div>
+                  <div className="text-[10px] text-slate-400">客席への公開設定</div>
+               </div>
             </div>
-            <button onClick={toggleEncore} className={`w-14 h-8 rounded-full border transition-all relative ${encoreRevealed ? 'bg-pink-600 border-pink-500' : 'bg-slate-800 border-slate-700'}`}>
-               <div className={`absolute top-1 bottom-1 w-6 bg-white rounded-full transition-all ${encoreRevealed ? 'left-7' : 'left-1'}`}></div>
+            <button onClick={toggleEncore} className={`w-12 h-7 rounded-full transition-all relative ${encoreRevealed ? 'bg-pink-500' : 'bg-slate-200'}`}>
+               <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-all ${encoreRevealed ? 'left-6' : 'left-1'}`}></div>
             </button>
          </div>
 
          {/* 2. Timeline */}
-         <div className="flex-1 overflow-y-auto p-4 space-y-2">
+         <div className="space-y-3">
+            <div className="flex items-center gap-2 px-2">
+               <Radio size={14} className="text-slate-400"/>
+               <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Running Order</h2>
+            </div>
+            
             {blocks.filter(b => b.type === "program").map(block => (
                <div key={block.id}>
                   {block.content.items?.map((item: any, i: number) => {
                      const isActive = playingItemId === `${block.id}-${i}`;
                      const isBreak = item.type === "break";
-                     if (item.type === "section") return <div key={i} className="pt-8 pb-2 pl-2 text-xs font-bold text-slate-600 border-b border-slate-800 mb-2 uppercase tracking-widest">{item.title}</div>;
-                     if (item.type === "memo") return <div key={i} className="my-2 mx-1 p-2 bg-yellow-900/20 text-yellow-500 border border-yellow-700/30 text-xs rounded">📝 {item.title}</div>;
+                     if (item.type === "section") return <div key={i} className="mt-6 mb-2 px-2 text-xs font-bold text-slate-400 border-b-2 border-slate-200 pb-1">{item.title}</div>;
+                     if (item.type === "memo") return <div key={i} className="my-2 p-3 bg-yellow-50 text-yellow-700 text-xs font-medium rounded-xl border border-yellow-200/50 flex items-center gap-2">📝 {item.title}</div>;
+                     
                      return (
                         <div 
-                          key={i} 
+                          key={i}
+                          ref={isActive ? activeItemRef : null}
                           onClick={() => !isBreak && toggleActiveItem(block.id, i)}
-                          className={`p-4 flex items-center gap-4 transition-all rounded-xl cursor-pointer border ${isActive ? 'bg-indigo-900/20 border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'bg-slate-900/40 border-slate-800 opacity-60 hover:opacity-100'}`}
+                          className={`relative p-4 flex items-center gap-4 rounded-2xl transition-all duration-300 ${
+                             isActive 
+                               ? (isBreak ? 'bg-orange-50 border-2 border-orange-400 shadow-lg scale-[1.02] z-10' : 'bg-indigo-50 border-2 border-indigo-500 shadow-lg scale-[1.02] z-10') 
+                               : 'bg-white border border-slate-100 hover:border-slate-300 opacity-90'
+                          }`}
                         >
                            <div className="shrink-0">
                               {isActive ? (
-                                 isBreak ? <Coffee className="text-orange-400 animate-pulse"/> : <div className="w-3 h-3 bg-indigo-400 rounded-full shadow-[0_0_10px_#818cf8] animate-pulse"></div>
+                                 isBreak ? <Coffee className="text-orange-500 animate-bounce" size={24}/> : <div className="flex items-center justify-center w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full"><Music size={20} className="animate-pulse"/></div>
                               ) : (
-                                 <div className="w-2 h-2 rounded-full bg-slate-600"></div>
+                                 <div className="w-10 h-10 rounded-full bg-slate-50 border border-slate-100 text-slate-300 flex items-center justify-center font-bold text-xs">{i+1}</div>
                               )}
                            </div>
+                           
                            <div className="flex-1 min-w-0">
-                              <div className={`text-base ${isActive ? 'font-bold text-white' : 'font-medium text-slate-400'}`}>{item.title}</div>
-                              <div className="text-xs text-slate-500 mt-1">{isBreak ? item.duration : item.composer}</div>
+                              <div className={`text-base leading-tight mb-1 ${isActive ? 'font-bold text-slate-900' : 'font-medium text-slate-600'}`}>
+                                 {item.title}
+                              </div>
+                              <div className="text-xs text-slate-400 flex items-center gap-2">
+                                 {isBreak ? (
+                                    <span className="flex items-center gap-1"><Clock size={10}/> {item.duration}</span>
+                                 ) : (
+                                    <span>{item.composer}</span>
+                                 )}
+                              </div>
                            </div>
-                           {isActive && !isBreak && <span className="text-[10px] font-bold text-indigo-400 border border-indigo-500/50 px-2 py-1 rounded uppercase tracking-wider">Playing</span>}
-                           {isBreak && isActive && <span className="text-[10px] font-bold text-orange-400 border border-orange-500/50 px-2 py-1 rounded uppercase tracking-wider">Break</span>}
+
+                           {isActive && !isBreak && (
+                              <div className="shrink-0 bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm animate-pulse">NOW</div>
+                           )}
+                           {isActive && isBreak && (
+                              <div className="shrink-0 bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm animate-pulse">BREAK</div>
+                           )}
                         </div>
                      )
                   })}
                </div>
             ))}
-            <div className="h-40"/>
          </div>
+      </div>
 
-         {/* 3. Break Controller */}
-         <div className="shrink-0 bg-slate-900 border-t border-slate-800 p-5 pb-8 relative z-20 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-            {activeInfo?.item.type === "break" ? (
-               <div className="flex items-center gap-6">
-                  <div className="flex-1">
-                     <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Coffee size={12}/> Intermission</div>
-                     <div className="text-5xl font-black text-white tabular-nums font-mono leading-none tracking-tight" style={{textShadow: "0 0 30px rgba(249,115,22,0.4)"}}>
+      {/* 3. BREAK CONTROL FOOTER (Fixed) */}
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 p-4 pb-safe z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+         {activeInfo?.item.type === "break" ? (
+            // ACTIVE BREAK MODE
+            <div className="flex items-center justify-between gap-4 max-w-xl mx-auto">
+               <div className="flex-1 bg-orange-50 rounded-2xl p-3 border border-orange-100 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500">
+                     <Coffee size={20}/>
+                  </div>
+                  <div>
+                     <div className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">休憩中</div>
+                     <div className="text-3xl font-black text-slate-800 tabular-nums leading-none">
                         {(() => {
                            if (!activeInfo.item.timerEnd) return "--:--";
                            const diff = new Date(activeInfo.item.timerEnd).getTime() - now;
@@ -246,28 +302,43 @@ export default function EventLiveCockpit({ params }: Props) {
                         })()}
                      </div>
                   </div>
-                  <button onClick={stopBreak} className="h-16 w-16 rounded-full bg-red-600/20 border border-red-500 text-red-500 flex flex-col items-center justify-center active:scale-95 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
-                     <StopCircle size={24} />
-                     <span className="text-[9px] font-bold mt-1">STOP</span>
-                  </button>
                </div>
-            ) : (
-               <div className="flex items-center gap-4 justify-between">
-                  {[10, 15, 20].map(min => (
-                     <button key={min} onClick={() => startBreak(min)} className="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-bold text-sm flex items-center justify-center hover:bg-slate-700 hover:border-slate-500 hover:text-white transition-all active:scale-90">
-                        {min}m
-                     </button>
-                  ))}
-                  <div className="h-10 w-px bg-slate-800"></div>
-                  <div className="flex flex-col items-center gap-1">
-                     <input type="number" className="w-16 bg-slate-800 border border-slate-700 rounded-lg text-center text-white font-bold text-sm py-1 outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-600" placeholder="分" value={customBreakTime} onChange={e=>setCustomBreakTime(e.target.value)} />
-                     <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-full shadow-lg active:scale-95 flex items-center gap-1 hover:bg-indigo-500 transition-colors">
-                        <Play size={10} fill="currentColor"/> Start
+               <button onClick={stopBreak} className="h-16 w-20 rounded-2xl bg-red-500 text-white flex flex-col items-center justify-center gap-1 shadow-lg active:scale-95 transition-transform hover:bg-red-600">
+                  <StopCircle size={24} />
+                  <span className="text-[10px] font-bold">終了</span>
+               </button>
+            </div>
+         ) : (
+            // IDLE MODE
+            <div className="flex flex-col gap-2 max-w-xl mx-auto">
+               <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
+                  <span>Break Timer</span>
+                  <span>Custom</span>
+               </div>
+               <div className="flex items-stretch gap-2 h-14">
+                  <div className="flex-1 grid grid-cols-3 gap-2">
+                     {[10, 15, 20].map(min => (
+                        <button key={min} onClick={() => startBreak(min)} className="bg-slate-50 border border-slate-200 text-slate-600 rounded-xl font-bold text-lg hover:bg-slate-100 hover:border-slate-300 active:scale-95 transition-all">
+                           {min}
+                        </button>
+                     ))}
+                  </div>
+                  <div className="w-px bg-slate-200 my-2"></div>
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2">
+                     <input 
+                        type="number" 
+                        className="w-10 bg-transparent text-center font-bold text-lg text-slate-800 outline-none" 
+                        placeholder="15" 
+                        value={customBreakTime} 
+                        onChange={e=>setCustomBreakTime(e.target.value)} 
+                     />
+                     <button onClick={() => startBreak(parseInt(customBreakTime)||15)} className="w-10 h-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center shadow-md active:scale-90 transition-transform">
+                        <Play size={16} fill="currentColor"/>
                      </button>
                   </div>
                </div>
-            )}
-         </div>
+            </div>
+         )}
       </div>
     </div>
   );
