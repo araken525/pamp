@@ -574,16 +574,13 @@ function BlockCard({ block, index, total, isExpanded, onToggle, onSave, onDelete
     <div ref={setNodeRef} style={style} className={`bg-white rounded-[2rem] shadow-sm transition-all duration-300 overflow-hidden border border-[#2C2C2C]/5 ${isExpanded ? 'ring-2 ring-[#B48E55]/20 shadow-xl scale-[1.01] my-4' : 'hover:shadow-md'}`}>
       <div className="flex items-center justify-between p-5 cursor-pointer select-none" onClick={onToggle}>
         <div className="flex items-center gap-4">
-           {/* REORDER BUTTONS ADDED BACK HERE */}
            {!isExpanded && (
              <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                 <div className="flex flex-col gap-0.5 mr-1">
                    <button onClick={() => onMove(block.id, 'up')} disabled={index===0} className="text-[#2C2C2C]/30 hover:text-[#B48E55] disabled:opacity-0 p-0.5 transition-colors"><ArrowUp size={12}/></button>
                    <button onClick={() => onMove(block.id, 'down')} disabled={index===total-1} className="text-[#2C2C2C]/30 hover:text-[#B48E55] disabled:opacity-0 p-0.5 transition-colors"><ArrowDown size={12}/></button>
                 </div>
-                <div {...attributes} {...listeners} className="p-2 text-[#2C2C2C]/20 hover:text-[#B48E55] cursor-grab active:cursor-grabbing border-l border-[#2C2C2C]/10 pl-3">
-                   <GripVertical size={20} />
-                </div>
+                {/* REMOVED: GripVertical div */}
              </div>
            )}
            
